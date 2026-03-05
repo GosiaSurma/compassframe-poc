@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { useRouter } from "next/navigation"
 import Link from "next/link"
 import { cn } from "@/lib/utils"
@@ -16,6 +16,8 @@ const TOPICS = [
   { label: "Something on my mind",    emoji: "💭" },
 ]
 
+const MAX_CUSTOM_TOPIC = 120
+
 interface RecentSession {
   id: string
   topic: string
@@ -29,20 +31,27 @@ export function TopicSelector({ recentSessions }: { recentSessions: RecentSessio
   const [loadingTopic, setLoadingTopic] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // "Other" topic state
+  const [otherExpanded, setOtherExpanded] = useState(false)
+  const [customTopic, setCustomTopic] = useState("")
+  const customInputRef = useRef<HTMLInputElement>(null)
+
   const activeSessions = recentSessions.filter(
     s => s.status !== "completed" && s.roundCount > 0,
   )
   const completedSessions = recentSessions.filter(s => s.status === "completed")
 
   async function startReflection(topic: string) {
-    setLoadingTopic(topic)
+    const trimmed = topic.trim()
+    if (!trimmed) return
+    setLoadingTopic(trimmed)
     setError(null)
 
     try {
       const res = await fetch("/api/reflection/sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic }),
+        body: JSON.stringify({ topic: trimmed }),
       })
 
       if (!res.ok) {
@@ -58,6 +67,16 @@ export function TopicSelector({ recentSessions }: { recentSessions: RecentSessio
     } finally {
       setLoadingTopic(null)
     }
+  }
+
+  function handleOtherExpand() {
+    setOtherExpanded(true)
+    setTimeout(() => customInputRef.current?.focus(), 50)
+  }
+
+  function handleCustomStart() {
+    if (!customTopic.trim()) return
+    startReflection(customTopic)
   }
 
   return (
@@ -123,6 +142,59 @@ export function TopicSelector({ recentSessions }: { recentSessions: RecentSessio
               <span className="text-sm text-gray-700 leading-snug">{label}</span>
             </button>
           ))}
+
+          {/* ── Other topic ──────────────────────────────────── */}
+          {!otherExpanded ? (
+            <button
+              onClick={handleOtherExpand}
+              disabled={loadingTopic !== null}
+              className={cn(
+                "bg-white border border-gray-100 rounded-xl p-4 text-left",
+                "flex items-start gap-3 transition-all",
+                "hover:border-brand-200 hover:shadow-sm",
+                "disabled:opacity-60 disabled:cursor-not-allowed",
+              )}
+            >
+              <span className="text-xl mt-0.5 shrink-0">✏️</span>
+              <span className="text-sm text-gray-400 leading-snug">Something else…</span>
+            </button>
+          ) : (
+            <div className="col-span-2 bg-brand-50 border-2 border-brand-200 rounded-xl p-4 space-y-3">
+              <p className="text-xs font-medium text-brand-700">What would you like to explore?</p>
+              <input
+                ref={customInputRef}
+                type="text"
+                value={customTopic}
+                onChange={e => setCustomTopic(e.target.value.slice(0, MAX_CUSTOM_TOPIC))}
+                onKeyDown={e => e.key === "Enter" && handleCustomStart()}
+                placeholder="Describe your topic…"
+                className="w-full text-sm border border-brand-200 rounded-lg px-3 py-2 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCustomStart}
+                  disabled={!customTopic.trim() || loadingTopic !== null}
+                  className={cn(
+                    "text-sm font-medium px-4 py-2 rounded-lg transition-colors",
+                    customTopic.trim()
+                      ? "bg-brand-600 text-white hover:bg-brand-700"
+                      : "bg-gray-200 text-gray-400 cursor-not-allowed",
+                  )}
+                >
+                  Start reflection
+                </button>
+                <button
+                  onClick={() => { setOtherExpanded(false); setCustomTopic("") }}
+                  className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+                <span className="ml-auto text-xs text-gray-300">
+                  {customTopic.length}/{MAX_CUSTOM_TOPIC}
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       </section>
 

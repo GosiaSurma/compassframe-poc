@@ -27,13 +27,50 @@ const isStub =
   !process.env.ANTHROPIC_API_KEY ||
   process.env.ANTHROPIC_API_KEY === "sk-ant-placeholder"
 
+// ── Response validator ────────────────────────────────────────────────────
+
+const FORBIDDEN_CLINICAL = [
+  "anxiety", "depression", "trauma", "disorder", "symptoms",
+  "mental health", "therapy", "therapist", "diagnosis", "diagnose",
+  "adhd", "ocd", "ptsd", "psychiatric", "counselling", "counseling",
+  "counselor", "bipolar", "autism", "medication", "treatment",
+  "clinical", "pathology",
+]
+
+const FORBIDDEN_ADVICE = [
+  "you should", "you need to", "i suggest", "i recommend",
+  "i advise", "have you tried", "try to", "what if you tried",
+  "it would help if", "a good idea would",
+]
+
+/**
+ * Returns a list of violations in the text. Empty array = clean.
+ * Only applied to the assistant's content, not user messages.
+ */
+export function validateMIContent(text: string): string[] {
+  const lower = text.toLowerCase()
+  const violations: string[] = []
+  for (const term of [...FORBIDDEN_CLINICAL, ...FORBIDDEN_ADVICE]) {
+    if (lower.includes(term)) violations.push(term)
+  }
+  return violations
+}
+
+const SAFE_FALLBACK: MIResponse = {
+  content:
+    "It sounds like there's a lot beneath the surface of what you're sharing. I'm sitting with that. What feels most true for you right now?",
+  insight: null,
+}
+
+// ── MI call ───────────────────────────────────────────────────────────────
+
 export async function callMI(
   messages: LLMMessage[],
   systemPrompt: string,
 ): Promise<MIResponse> {
   // Dev stub — allows full UI testing without an API key
   if (isStub) {
-    await new Promise(r => setTimeout(r, 800)) // simulate latency
+    await new Promise(r => setTimeout(r, 800))
     const last = messages[messages.length - 1]?.content ?? ""
     return {
       content: `It sounds like you're exploring something meaningful here. I'm hearing a sense of uncertainty in what you've shared. What feels most important to you about "${last.slice(0, 40)}…"?`,
@@ -44,6 +81,14 @@ export async function callMI(
     }
   }
 
+  return _callMIWithRetry(messages, systemPrompt, false)
+}
+
+async function _callMIWithRetry(
+  messages: LLMMessage[],
+  systemPrompt: string,
+  isRetry: boolean,
+): Promise<MIResponse> {
   const client = getClient()
 
   const response = await client.messages.create({
@@ -55,23 +100,38 @@ export async function callMI(
 
   const raw =
     response.content[0].type === "text" ? response.content[0].text : ""
-
-  // Strip optional ```json ... ``` fence
   const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
 
+  let parsed: MIResponse
   try {
-    const parsed = JSON.parse(cleaned) as { content?: string; insight?: string | null }
-    return {
-      content: parsed.content ?? raw,
-      insight: parsed.insight ?? null,
-    }
+    const obj = JSON.parse(cleaned) as { content?: string; insight?: string | null }
+    parsed = { content: obj.content ?? raw, insight: obj.insight ?? null }
   } catch {
-    // Graceful fallback if model returns free text instead of JSON
-    return { content: raw, insight: null }
+    parsed = { content: raw, insight: null }
   }
+
+  // ── Validate ──────────────────────────────────────────────────────
+  const violations = validateMIContent(parsed.content)
+
+  if (violations.length === 0) return parsed
+
+  // First violation → retry once with a correction appended to system prompt
+  if (!isRetry) {
+    const correctionPrompt =
+      systemPrompt +
+      `\n\n⚠ CORRECTION REQUIRED: Your previous response contained restricted term(s): "${violations.join('", "')}". ` +
+      `Rewrite your response without using any of these terms. ` +
+      `Keep the same empathic structure but use only approved language.`
+
+    return _callMIWithRetry(messages, correctionPrompt, true)
+  }
+
+  // Second violation → safe fallback (log for monitoring)
+  console.warn("[MI validator] Fallback used after retry. Violations:", violations)
+  return SAFE_FALLBACK
 }
 
-// ── Summary generation ────────────────────────────────────────────────
+// ── Summary generation ────────────────────────────────────────────────────
 
 const SUMMARY_FALLBACKS = [
   "I explored something that has been weighing on me and found it a little easier to hold once I put it into words.",

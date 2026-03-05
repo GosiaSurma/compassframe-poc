@@ -14,7 +14,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Topic is required" }, { status: 400 })
   }
 
-  const topicStr = topic.trim() as string
+  const topicStr = (topic as string).trim().slice(0, 120)
 
   const reflectionSession = await prisma.reflectionSession.create({
     data: { userId: session.user.id, topic: topicStr },
