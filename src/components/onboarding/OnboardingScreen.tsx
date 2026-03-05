@@ -51,8 +51,8 @@ export function OnboardingScreen({ userName }: Props) {
       return
     }
 
-    // Full navigation refresh so the layout re-reads the session role
-    router.push("/reflection")
+    // Proceed to connection step; refresh so layout re-reads session role
+    router.push("/onboarding/connect")
     router.refresh()
   }
 

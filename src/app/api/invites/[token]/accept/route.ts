@@ -27,7 +27,6 @@ export async function POST(
     return NextResponse.json({ error: "You can't accept your own invite" }, { status: 400 })
   }
 
-  // Role compatibility check
   const acceptingUser = await prisma.user.findUnique({
     where: { id: session.user.id },
     select: { role: true },
@@ -41,7 +40,7 @@ export async function POST(
 
   const compatible =
     (fromRole === "parent" && toRole === "teen") ||
-    (fromRole === "teen" && toRole === "parent")
+    (fromRole === "teen"   && toRole === "parent")
 
   if (!compatible) {
     return NextResponse.json(
@@ -53,7 +52,17 @@ export async function POST(
   const parentId = fromRole === "parent" ? invite.fromUserId : session.user.id
   const teenId   = fromRole === "teen"   ? invite.fromUserId : session.user.id
 
-  // Upsert relationship + mark invite accepted in a transaction
+  // Enforce: teen can have at most 2 active parents
+  const parentCount = await prisma.relationship.count({
+    where: { teenId, status: "active" },
+  })
+  if (parentCount >= 2) {
+    return NextResponse.json(
+      { error: "A teen can be linked to at most 2 parents." },
+      { status: 409 },
+    )
+  }
+
   await prisma.$transaction([
     prisma.relationship.upsert({
       where: { parentId_teenId: { parentId, teenId } },

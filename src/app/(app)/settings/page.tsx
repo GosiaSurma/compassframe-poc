@@ -8,11 +8,30 @@ export default async function SettingsPage() {
   const session = await getServerSession(authOptions)
   if (!session) redirect("/login")
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.user.id },
-    select: { role: true, magicalMode: true },
-  })
+  const [user, relationships] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: session.user.id },
+      select: { role: true, magicalMode: true },
+    }),
+    prisma.relationship.findMany({
+      where: {
+        OR: [{ parentId: session.user.id }, { teenId: session.user.id }],
+        status: "active",
+      },
+      include: {
+        parent: { select: { id: true, name: true, email: true } },
+        teen:   { select: { id: true, name: true, email: true } },
+      },
+    }),
+  ])
+
   if (!user) redirect("/login")
+
+  const connections = relationships.map(r => ({
+    id: r.id,
+    other: session.user.id === r.parentId ? r.teen : r.parent,
+    otherRole: session.user.id === r.parentId ? "teen" : "parent",
+  }))
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
@@ -20,6 +39,7 @@ export default async function SettingsPage() {
       <SettingsForm
         currentRole={(user.role ?? "parent") as "parent" | "teen"}
         currentMagicalMode={user.magicalMode}
+        connections={connections}
       />
     </div>
   )

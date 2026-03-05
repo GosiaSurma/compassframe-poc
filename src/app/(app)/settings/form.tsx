@@ -8,6 +8,12 @@ import { Button } from "@/components/ui/button"
 type MagicalMode = "off" | "light" | "full"
 type Role = "parent" | "teen"
 
+interface Connection {
+  id: string
+  other: { id: string; name: string | null; email: string }
+  otherRole: string
+}
+
 const MODES: { value: MagicalMode; label: string; desc: string }[] = [
   { value: "off",   label: "Off",   desc: "Plain conversational interface." },
   { value: "light", label: "Light", desc: "Subtle visual warmth and softer transitions." },
@@ -17,21 +23,35 @@ const MODES: { value: MagicalMode; label: string; desc: string }[] = [
 export function SettingsForm({
   currentRole,
   currentMagicalMode,
+  connections: initialConnections,
 }: {
   currentRole: Role
   currentMagicalMode: string
+  connections: Connection[]
 }) {
   const router = useRouter()
+
+  // ── Magical Mode ──────────────────────────────────────────────────
   const [magicalMode, setMagicalMode] = useState<MagicalMode>(
     (currentMagicalMode as MagicalMode) ?? "off",
   )
-  const [role, setRole] = useState<Role>(currentRole)
   const [savingMode, setSavingMode] = useState(false)
+  const [modeSuccess, setModeSuccess] = useState(false)
+
+  // ── Role ──────────────────────────────────────────────────────────
+  const [role, setRole] = useState<Role>(currentRole)
   const [confirmRole, setConfirmRole] = useState(false)
   const [pendingRole, setPendingRole] = useState<Role | null>(null)
   const [savingRole, setSavingRole] = useState(false)
-  const [modeSuccess, setModeSuccess] = useState(false)
+
+  // ── Connections ───────────────────────────────────────────────────
+  const [connections, setConnections] = useState(initialConnections)
+  const [confirmRemoveId, setConfirmRemoveId] = useState<string | null>(null)
+  const [removingId, setRemovingId] = useState<string | null>(null)
+
   const [error, setError] = useState<string | null>(null)
+
+  // ── Magical Mode handlers ─────────────────────────────────────────
 
   async function saveMagicalMode(mode: MagicalMode) {
     setSavingMode(true)
@@ -51,6 +71,8 @@ export function SettingsForm({
       setError("Failed to save")
     }
   }
+
+  // ── Role handlers ─────────────────────────────────────────────────
 
   function requestRoleChange(newRole: Role) {
     if (newRole === role) return
@@ -78,6 +100,22 @@ export function SettingsForm({
     }
   }
 
+  // ── Connection handlers ───────────────────────────────────────────
+
+  async function removeConnection(id: string) {
+    setRemovingId(id)
+    setError(null)
+    const res = await fetch(`/api/relationships/${id}`, { method: "DELETE" })
+    setRemovingId(null)
+    if (res.ok) {
+      setConnections(prev => prev.filter(c => c.id !== id))
+      setConfirmRemoveId(null)
+    } else {
+      const d = await res.json()
+      setError(d.error ?? "Failed to remove connection")
+    }
+  }
+
   return (
     <div className="space-y-6">
       {error && (
@@ -90,14 +128,11 @@ export function SettingsForm({
       <section className="bg-white rounded-2xl border border-gray-100 p-6">
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-sm font-semibold text-gray-900">Magical Mode</h2>
-          {modeSuccess && (
-            <span className="text-xs text-green-600">Saved ✓</span>
-          )}
+          {modeSuccess && <span className="text-xs text-green-600">Saved ✓</span>}
         </div>
         <p className="text-xs text-gray-400 mb-4">
           Affects presentation only — the logic never changes.
         </p>
-
         <div className="space-y-2">
           {MODES.map(({ value, label, desc }) => (
             <button
@@ -124,7 +159,6 @@ export function SettingsForm({
         <p className="text-xs text-gray-400 mb-4">
           Changing your role may affect existing relationships.
         </p>
-
         <div className="flex gap-3">
           {(["parent", "teen"] as Role[]).map(r => (
             <button
@@ -142,7 +176,6 @@ export function SettingsForm({
           ))}
         </div>
 
-        {/* Confirmation panel */}
         {confirmRole && pendingRole && (
           <div className="mt-4 bg-amber-50 border border-amber-100 rounded-xl p-4">
             <p className="text-sm text-amber-800 mb-3">
@@ -151,12 +184,7 @@ export function SettingsForm({
               linked relationships work.
             </p>
             <div className="flex gap-2">
-              <Button
-                size="sm"
-                onClick={confirmRoleChange}
-                loading={savingRole}
-                variant="primary"
-              >
+              <Button size="sm" onClick={confirmRoleChange} loading={savingRole} variant="primary">
                 Confirm
               </Button>
               <Button
@@ -168,6 +196,69 @@ export function SettingsForm({
               </Button>
             </div>
           </div>
+        )}
+      </section>
+
+      {/* ── Connections ───────────────────────────────────────────── */}
+      <section className="bg-white rounded-2xl border border-gray-100 p-6">
+        <h2 className="text-sm font-semibold text-gray-900 mb-1">Connections</h2>
+        <p className="text-xs text-gray-400 mb-4">
+          People you are linked with. Removing a connection is permanent.
+        </p>
+
+        {connections.length === 0 ? (
+          <p className="text-sm text-gray-400">No active connections.</p>
+        ) : (
+          <ul className="space-y-3">
+            {connections.map(c => (
+              <li key={c.id}>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold shrink-0">
+                    {(c.other.name ?? c.other.email)[0].toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {c.other.name ?? c.other.email}
+                    </p>
+                    <p className="text-xs text-gray-400 capitalize">{c.otherRole}</p>
+                  </div>
+                  <button
+                    onClick={() => setConfirmRemoveId(c.id)}
+                    className="text-xs text-red-400 hover:text-red-600 transition-colors shrink-0"
+                  >
+                    Remove
+                  </button>
+                </div>
+
+                {/* Confirmation row */}
+                {confirmRemoveId === c.id && (
+                  <div className="mt-2 ml-11 bg-red-50 border border-red-100 rounded-xl p-3">
+                    <p className="text-xs text-red-700 mb-2">
+                      Remove <strong>{c.other.name ?? c.other.email}</strong>? This can&apos;t be
+                      undone without a new invite.
+                    </p>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        loading={removingId === c.id}
+                        onClick={() => removeConnection(c.id)}
+                      >
+                        Remove
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => setConfirmRemoveId(null)}
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
         )}
       </section>
     </div>

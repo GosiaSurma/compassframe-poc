@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma"
 import { generateToken, expiresIn } from "@/lib/utils"
 import { sendInviteEmail } from "@/lib/email"
 
+const BASE_URL = process.env.NEXTAUTH_URL ?? "http://localhost:3000"
+
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -14,7 +16,6 @@ export async function POST(req: Request) {
 
   const normalEmail = toEmail.toLowerCase().trim()
 
-  // Can't invite yourself
   if (normalEmail === session.user.email?.toLowerCase()) {
     return NextResponse.json({ error: "You can't invite yourself" }, { status: 400 })
   }
@@ -29,20 +30,13 @@ export async function POST(req: Request) {
 
   const expectedRole = fromUser.role === "parent" ? "teen" : "parent"
 
-  // Check if recipient has an account with the correct role
+  // If recipient already has an account, validate role compatibility
   const toUser = await prisma.user.findUnique({
     where: { email: normalEmail },
     select: { id: true, role: true },
   })
 
-  if (!toUser) {
-    return NextResponse.json(
-      { error: `No account found for ${normalEmail}. They need to register first.` },
-      { status: 404 },
-    )
-  }
-
-  if (toUser.role && toUser.role !== expectedRole) {
+  if (toUser?.role && toUser.role !== expectedRole) {
     return NextResponse.json(
       { error: `${normalEmail} has the role "${toUser.role}" but you need a ${expectedRole}.` },
       { status: 409 },
@@ -50,17 +44,19 @@ export async function POST(req: Request) {
   }
 
   // No existing active relationship
-  const existingRel = await prisma.relationship.findFirst({
-    where: {
-      OR: [
-        { parentId: session.user.id, teenId: toUser.id },
-        { parentId: toUser.id, teenId: session.user.id },
-      ],
-      status: "active",
-    },
-  })
-  if (existingRel) {
-    return NextResponse.json({ error: "You are already linked with this person" }, { status: 409 })
+  if (toUser) {
+    const existingRel = await prisma.relationship.findFirst({
+      where: {
+        OR: [
+          { parentId: session.user.id, teenId: toUser.id },
+          { parentId: toUser.id, teenId: session.user.id },
+        ],
+        status: "active",
+      },
+    })
+    if (existingRel) {
+      return NextResponse.json({ error: "You are already linked with this person" }, { status: 409 })
+    }
   }
 
   // Invalidate any pending invites to the same email from this user
@@ -82,7 +78,8 @@ export async function POST(req: Request) {
   const fromName = fromUser.name ?? fromUser.email ?? "Someone"
   await sendInviteEmail(normalEmail, fromName, fromUser.role, token)
 
-  return NextResponse.json({ message: `Invite sent to ${normalEmail}` }, { status: 201 })
+  const inviteLink = `${BASE_URL}/invite/${token}`
+  return NextResponse.json({ message: `Invite sent to ${normalEmail}`, inviteLink }, { status: 201 })
 }
 
 export async function GET() {
