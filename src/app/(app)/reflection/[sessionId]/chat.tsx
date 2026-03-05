@@ -167,18 +167,28 @@ export function Chat({ session, initialMessages, magicalMode }: Props) {
         >
           ← Back
         </button>
-        <span className="text-sm font-medium text-gray-700 truncate max-w-[50%]">
+        <span className="text-sm font-medium text-gray-700 truncate max-w-[40%]">
           {session.topic}
         </span>
-        <span
-          className={`text-xs px-2.5 py-1 rounded-full font-medium ${
-            isComplete
-              ? "bg-green-100 text-green-700"
-              : "bg-gray-100 text-gray-500"
-          }`}
-        >
-          {roundCount}/{MAX_ROUNDS}
-        </span>
+        <div className="flex items-center gap-2 shrink-0">
+          {roundCount >= 1 && !isComplete && (
+            <button
+              onClick={() => router.push(`/reflection/${session.id}/summary`)}
+              className="text-xs text-brand-600 hover:text-brand-700 font-medium transition-colors"
+            >
+              Wrap up →
+            </button>
+          )}
+          <span
+            className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+              isComplete
+                ? "bg-green-100 text-green-700"
+                : "bg-gray-100 text-gray-500"
+            }`}
+          >
+            {roundCount}/{MAX_ROUNDS}
+          </span>
+        </div>
       </div>
 
       {/* ── Messages ─────────────────────────────────────────────── */}

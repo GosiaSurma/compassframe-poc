@@ -193,7 +193,7 @@ export function SummaryClient({
       )}
 
       <p className="text-sm text-gray-500 mb-6">
-        Choose the summary that feels most true, or edit it to say it your way.
+        Select the summary that feels most true to you, or edit it to say it in your own words.
       </p>
 
       {error && (
@@ -233,7 +233,11 @@ export function SummaryClient({
                 </div>
 
                 <div className="flex-1 min-w-0">
-                  <p className="text-xs text-gray-400 mb-1">Option {i + 1}</p>
+                  <p className="text-xs font-medium mb-1">
+                    {isSelected
+                      ? <span className="text-brand-600">✓ This resonates most</span>
+                      : <span className="text-gray-400">Option {i + 1}</span>}
+                  </p>
 
                   {isEditingThis ? (
                     <textarea
@@ -335,7 +339,7 @@ export function SummaryClient({
       {/* No summary selected yet */}
       {!selectedId && (
         <p className="text-sm text-gray-400 text-center py-2">
-          Select a summary above to continue.
+          Choose which summary resonates most to see your options.
         </p>
       )}
 
