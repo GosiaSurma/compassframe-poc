@@ -3,17 +3,13 @@ import { redirect } from "next/navigation"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { AppNav } from "@/components/nav/AppNav"
-import { OnboardingScreen } from "@/components/onboarding/OnboardingScreen"
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)
   if (!session) redirect("/login")
 
-  // No role yet — render onboarding fullscreen inside this layout.
-  // This avoids a redirect loop (onboarding page is inside this group).
-  if (!session.user.role) {
-    return <OnboardingScreen userName={session.user.name} />
-  }
+  // No role yet — send to dedicated onboarding route (outside this group)
+  if (!session.user.role) redirect("/onboarding/role")
 
   const [completedCount, unreadGiftCount] = await Promise.all([
     prisma.reflectionSession.count({
