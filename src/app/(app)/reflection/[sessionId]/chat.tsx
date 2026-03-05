@@ -20,18 +20,21 @@ interface Props {
   magicalMode: string
 }
 
-function TypingIndicator() {
+function TypingIndicator({ magicalMode }: { magicalMode: string }) {
+  const isFull = magicalMode === "full"
+  const avatarBg = isFull ? "bg-violet-100 text-violet-700" : "bg-brand-100 text-brand-700"
+  const dotColor = isFull ? "bg-violet-300" : "bg-gray-300"
   return (
     <div className="flex items-start gap-2.5">
-      <div className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-[10px] font-bold mt-0.5">
-        ✦
+      <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${avatarBg}`}>
+        {isFull ? "✧" : "✦"}
       </div>
       <div className="bg-white border border-gray-100 rounded-2xl rounded-tl-sm shadow-sm px-4 py-3">
         <div className="flex gap-1.5 items-center h-4">
           {[0, 1, 2].map(i => (
             <span
               key={i}
-              className="w-1.5 h-1.5 bg-gray-300 rounded-full inline-block animate-bounce"
+              className={`w-1.5 h-1.5 rounded-full inline-block animate-bounce ${dotColor}`}
               style={{ animationDelay: `${i * 0.18}s` }}
             />
           ))}
@@ -153,9 +156,11 @@ export function Chat({ session, initialMessages, magicalMode }: Props) {
   )
 
   const wrapperClass =
-    magicalMode === "light"
-      ? "flex flex-col min-h-full bg-amber-50/30"
-      : "flex flex-col min-h-full"
+    magicalMode === "full"
+      ? "flex flex-col min-h-full bg-gradient-to-b from-violet-50/50 via-indigo-50/30 to-amber-50/20"
+      : magicalMode === "light"
+        ? "flex flex-col min-h-full bg-amber-50/30"
+        : "flex flex-col min-h-full"
 
   return (
     <div className={wrapperClass}>
@@ -198,12 +203,13 @@ export function Chat({ session, initialMessages, magicalMode }: Props) {
             key={msg.id}
             message={msg}
             responded={respondedInsights.has(msg.id)}
+            magicalMode={magicalMode}
             onInsightResponse={handleInsightResponse}
             onClarify={() => setTimeout(() => textareaRef.current?.focus(), 50)}
           />
         ))}
 
-        {isLoading && <TypingIndicator />}
+        {isLoading && <TypingIndicator magicalMode={magicalMode} />}
 
         {isComplete && (
           <div className="bg-green-50 border border-green-200 rounded-2xl p-5 text-center">

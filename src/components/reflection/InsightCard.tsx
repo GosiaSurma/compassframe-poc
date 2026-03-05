@@ -1,32 +1,112 @@
 "use client"
 
-const RESPONSES = [
-  { key: "resonates" as const, label: "That resonates" },
-  { key: "not_quite" as const, label: "Not quite" },
-  { key: "clarify"   as const, label: "I want to clarify" },
+type InsightResponse = "resonates" | "not_quite" | "clarify"
+
+const RESPONSES: { key: InsightResponse; label: string }[] = [
+  { key: "resonates", label: "That resonates" },
+  { key: "not_quite", label: "Not quite" },
+  { key: "clarify",   label: "I want to clarify" },
 ]
 
 const RESPONSE_LABELS: Record<string, string> = {
-  resonates:  "✓ That resonated with you",
-  not_quite:  "✓ You noted this doesn't quite fit",
-  clarify:    "✓ You wanted to clarify",
+  resonates: "✓ That resonated with you",
+  not_quite: "✓ You noted this doesn't quite fit",
+  clarify:   "✓ You wanted to clarify",
 }
+
+// ── Elemental themes (Full mode) ──────────────────────────────────────────
+
+const ELEMENTS = [
+  {
+    name: "Fire", emoji: "🔥",
+    card:    "bg-rose-50 border-rose-200",
+    heading: "text-rose-600",
+    body:    "text-rose-900",
+    btn:     "border-rose-300 text-rose-800 hover:bg-rose-100 active:bg-rose-200",
+    done:    "text-rose-500",
+  },
+  {
+    name: "Water", emoji: "💧",
+    card:    "bg-blue-50 border-blue-200",
+    heading: "text-blue-600",
+    body:    "text-blue-900",
+    btn:     "border-blue-300 text-blue-800 hover:bg-blue-100 active:bg-blue-200",
+    done:    "text-blue-500",
+  },
+  {
+    name: "Air", emoji: "🌬️",
+    card:    "bg-violet-50 border-violet-200",
+    heading: "text-violet-600",
+    body:    "text-violet-900",
+    btn:     "border-violet-300 text-violet-800 hover:bg-violet-100 active:bg-violet-200",
+    done:    "text-violet-500",
+  },
+  {
+    name: "Earth", emoji: "🌿",
+    card:    "bg-emerald-50 border-emerald-200",
+    heading: "text-emerald-600",
+    body:    "text-emerald-900",
+    btn:     "border-emerald-300 text-emerald-800 hover:bg-emerald-100 active:bg-emerald-200",
+    done:    "text-emerald-500",
+  },
+]
+
+/** Deterministic element from message ID — same insight always gets the same element */
+function pickElement(messageId: string) {
+  let hash = 0
+  for (let i = 0; i < messageId.length; i++) {
+    hash += messageId.charCodeAt(i)
+  }
+  return ELEMENTS[hash % ELEMENTS.length]
+}
+
+// ── Off / Light base theme ────────────────────────────────────────────────
+
+const BASE = {
+  card:    "bg-amber-50 border-amber-200",
+  heading: "text-amber-600",
+  body:    "text-amber-900",
+  btn:     "border-amber-300 text-amber-800 hover:bg-amber-100 active:bg-amber-200",
+  done:    "text-amber-600",
+}
+
+// ── Component ─────────────────────────────────────────────────────────────
 
 interface Props {
   text: string
   messageId: string
   responded: boolean
   currentResponse: string | null
-  onRespond: (messageId: string, response: "resonates" | "not_quite" | "clarify") => void
+  magicalMode: string
+  onRespond: (messageId: string, response: InsightResponse) => void
 }
 
-export function InsightCard({ text, messageId, responded, currentResponse, onRespond }: Props) {
+export function InsightCard({
+  text,
+  messageId,
+  responded,
+  currentResponse,
+  magicalMode,
+  onRespond,
+}: Props) {
+  const isFull = magicalMode === "full"
+  const isLight = magicalMode === "light"
+
+  const element = isFull ? pickElement(messageId) : null
+  const el = element ?? BASE
+
+  const headingText = element
+    ? `${element.emoji} ${element.name} Insight`
+    : isLight
+      ? "✦ Insight"
+      : "Highlighted Insight"
+
   return (
-    <div className="bg-amber-50 border border-amber-200 rounded-2xl px-4 py-3 max-w-[88%]">
-      <p className="text-[10px] font-semibold text-amber-600 uppercase tracking-widest mb-1.5">
-        Highlighted Insight
+    <div className={`border rounded-2xl px-4 py-3 max-w-[88%] ${el.card}`}>
+      <p className={`text-[10px] font-semibold uppercase tracking-widest mb-1.5 ${el.heading}`}>
+        {headingText}
       </p>
-      <p className="text-sm text-amber-900 leading-relaxed mb-3">{text}</p>
+      <p className={`text-sm leading-relaxed mb-3 ${el.body}`}>{text}</p>
 
       {!responded ? (
         <div className="flex flex-wrap gap-2">
@@ -34,14 +114,14 @@ export function InsightCard({ text, messageId, responded, currentResponse, onRes
             <button
               key={key}
               onClick={() => onRespond(messageId, key)}
-              className="text-xs px-3 py-1.5 rounded-full border border-amber-300 text-amber-800 hover:bg-amber-100 active:bg-amber-200 transition-colors"
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${el.btn}`}
             >
               {label}
             </button>
           ))}
         </div>
       ) : (
-        <p className="text-xs text-amber-600 italic">
+        <p className={`text-xs italic ${el.done}`}>
           {currentResponse ? RESPONSE_LABELS[currentResponse] : "✓ Responded"}
         </p>
       )}
