@@ -238,51 +238,202 @@ async function _callMIWithRetry(
 
 // ── Summary generation ────────────────────────────────────────────────────
 
-const SUMMARY_FALLBACKS = [
-  "I explored something that has been weighing on me and found it a little easier to hold once I put it into words.",
-  "I noticed some patterns in how I see this situation that I hadn't quite named before — and that feels like a start.",
-  "I spent time sitting with something uncertain, and while I don't have answers yet, I feel more connected to what I'm actually feeling.",
+export interface SummaryContext {
+  topic: string
+  roundCount: number
+  conversationLines: string[]
+  emotionalThemes: string[]
+  acceptedInsights: string[]
+  clarifiedInsights: string[]
+  finalUserTurns: string[]
+}
+
+export function buildSummaryPrompt(ctx: SummaryContext): string {
+  const {
+    topic, roundCount, conversationLines,
+    emotionalThemes, acceptedInsights, clarifiedInsights, finalUserTurns,
+  } = ctx
+
+  const emotionBlock = emotionalThemes.length > 0
+    ? emotionalThemes.map(e => `• ${e}`).join("\n")
+    : "• none detected"
+
+  const insightBlock = [
+    ...acceptedInsights.map(i => `• (resonated) "${i.slice(0, 120)}"`),
+    ...clarifiedInsights.map(i => `• (clarified) "${i.slice(0, 120)}"`),
+  ].join("\n") || "• none"
+
+  const finalTurnsBlock = finalUserTurns.length > 0
+    ? finalUserTurns.map((t, i) => `${i + 1}. "${t.slice(0, 180)}"`).join("\n")
+    : "• (no user messages)"
+
+  return `You write exactly 3 first-person summaries of a reflection conversation, written as the person who reflected — in their voice, about their experience.
+
+━━ CONVERSATION CONTEXT ━━
+Topic: "${topic}"
+Rounds completed: ${roundCount}
+
+Emotional themes named across this session:
+${emotionBlock}
+
+Insights the person actively engaged with:
+${insightBlock}
+
+The person's final messages (most recent first):
+${finalTurnsBlock}
+
+━━ FULL CONVERSATION TRANSCRIPT ━━
+${conversationLines.join("\n\n")}
+
+━━ RULES ━━
+• Write in first person — start every summary with "I"
+• Each summary: 2–3 sentences, 25–60 words
+• Every summary must reference SPECIFIC content from this exact conversation — the topic, emotions named, things actually said, or insights engaged with
+• Forbidden openers: "I explored something", "I spent time", "I found myself sitting"
+• Forbidden words/phrases: "journey", "meaningful experience", "important growth", "i need to", "i should", "i must"
+• No advice, no judgment, no clinical language, no diagnosis
+
+━━ THREE REQUIRED EMPHASES — each must be clearly distinct ━━
+Summary 1 — EMOTIONAL CLARITY
+What specific emotion was named or felt? What shifted emotionally for the person?
+Write about the emotional texture of THIS specific conversation.
+
+Summary 2 — PATTERN OR MEANING
+What pattern, realisation, or personal meaning became clearer?
+Something newly named, seen, or understood in this conversation — not generic.
+
+Summary 3 — READINESS OR NEXT AWARENESS
+Where does the person feel they are now? What is clearer or more honest?
+A sense of shifted awareness or nascent direction — not a plan, not an action item.
+
+━━ OUTPUT — valid JSON only, no markdown fences ━━
+{
+  "summaries": [
+    "<emotional clarity — 2-3 sentences, specific to this conversation>",
+    "<pattern or meaning — 2-3 sentences, specific to this conversation>",
+    "<readiness or next awareness — 2-3 sentences, specific to this conversation>"
+  ]
+}`
+}
+
+const SUMMARY_FORBIDDEN = [
+  "i explored something", "i spent time sitting", "i found myself sitting",
+  "i spent time with", "important growth", "meaningful experience",
+  "it was helpful", "i feel better now", "you should", "you need to",
+  "i need to", "i should", "i must", "journey",
+  "anxiety", "depression", "trauma", "disorder", "diagnosis",
 ]
 
-export async function callSummary(
-  conversationText: string,
-): Promise<{ summaries: string[] }> {
-  if (isStub) {
-    await new Promise(r => setTimeout(r, 1200))
-    return { summaries: SUMMARY_FALLBACKS }
+function jaccardSimilarity(a: string, b: string): number {
+  const wordsA = a.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 3))
+  const setA = new Set(wordsA)
+  const intersection = wordsA.filter(w => wordsB.has(w)).length
+  const union = setA.size + wordsB.size - intersection
+  return union > 0 ? intersection / union : 0
+}
+
+export function validateSummaries(summaries: string[]): string[] {
+  if (summaries.length < 3) return ["fewer than 3 summaries returned"]
+
+  const violations: string[] = []
+
+  summaries.forEach((s, i) => {
+    const label = `summary ${i + 1}`
+    const lower = s.toLowerCase()
+    const words = s.trim().split(/\s+/).length
+
+    if (!s.trimStart().match(/^I[ ']/)) violations.push(`${label}: must start with "I"`)
+    if (words < 20) violations.push(`${label}: too short (${words} words)`)
+    if (words > 80) violations.push(`${label}: too long (${words} words)`)
+    for (const phrase of SUMMARY_FORBIDDEN) {
+      if (lower.includes(phrase)) violations.push(`${label}: forbidden phrase "${phrase}"`)
+    }
+  })
+
+  const pairs = [[0, 1], [0, 2], [1, 2]] as const
+  for (const [i, j] of pairs) {
+    const sim = jaccardSimilarity(summaries[i], summaries[j])
+    if (sim > 0.45) {
+      violations.push(
+        `summaries ${i + 1} and ${j + 1} are too similar (${(sim * 100).toFixed(0)}% content overlap)`,
+      )
+    }
   }
 
+  return violations
+}
+
+function makeSummaryFallbacks(ctx: SummaryContext): string[] {
+  const { topic, emotionalThemes, acceptedInsights } = ctx
+  const emotion = emotionalThemes[0] ?? "unsettled"
+  const rawInsight = acceptedInsights[0]
+  const insightSnippet = rawInsight
+    ? rawInsight
+        .replace(/^I'm noticing[,.\s]*/i, "")
+        .replace(/^Something that stands out[,.\s]*/i, "")
+        .slice(0, 90)
+        .toLowerCase()
+    : null
+
+  return [
+    `I noticed I was holding something ${emotion} around ${topic}, and naming that made it a little easier to sit with.`,
+    insightSnippet
+      ? `Something became clearer to me: ${insightSnippet}. I hadn't quite put that into words before this conversation.`
+      : `A pattern emerged around ${topic} that I hadn't been able to see from inside it — and seeing it shifted something.`,
+    `I don't have it resolved, but I feel more honest with myself about where I actually am with ${topic} right now.`,
+  ]
+}
+
+export async function callSummary(ctx: SummaryContext): Promise<{ summaries: string[] }> {
+  if (isStub) {
+    await new Promise(r => setTimeout(r, 1200))
+    return { summaries: makeSummaryFallbacks(ctx) }
+  }
+  return _callSummaryWithRetry(ctx, false)
+}
+
+async function _callSummaryWithRetry(
+  ctx: SummaryContext,
+  isRetry: boolean,
+): Promise<{ summaries: string[] }> {
   const client = getClient()
 
   const response = await client.messages.create({
     model: MODEL,
     max_tokens: SUMMARY_MAX_TOKENS,
-    system: `You write 3 distinct, neutral, first-person summaries of a reflection conversation.
-
-Each summary must:
-• Be 2–3 sentences, written in first person ("I explored…", "I noticed…", "I found myself…")
-• Be neutral — no advice, no judgment, no clinical language
-• Capture a different angle or emphasis from the other two
-• Sound like the person is speaking about their own experience — warm and grounded
-
-Return ONLY valid JSON: { "summaries": ["...", "...", "..."] }`,
-    messages: [
-      {
-        role: "user",
-        content: `Generate 3 summary options for this reflection:\n\n${conversationText}`,
-      },
-    ],
+    system: buildSummaryPrompt(ctx),
+    messages: [{ role: "user", content: "Generate the 3 summaries now." }],
   })
 
   const raw = response.content[0].type === "text" ? response.content[0].text : ""
   const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
 
+  let parsed: string[] | null = null
   try {
-    const parsed = JSON.parse(cleaned) as { summaries?: string[] }
-    if (Array.isArray(parsed.summaries) && parsed.summaries.length > 0) {
-      return { summaries: parsed.summaries.slice(0, 3) }
+    const obj = JSON.parse(cleaned) as { summaries?: unknown }
+    if (Array.isArray(obj.summaries) && obj.summaries.length >= 3) {
+      const candidates = (obj.summaries as unknown[]).filter(
+        (s): s is string => typeof s === "string" && s.trim().length > 0,
+      )
+      if (candidates.length >= 3) parsed = candidates.slice(0, 3)
     }
   } catch { /* fall through */ }
 
-  return { summaries: SUMMARY_FALLBACKS }
+  if (!parsed) {
+    if (!isRetry) return _callSummaryWithRetry(ctx, true)
+    console.warn("[summary] Fallback — could not parse response.")
+    return { summaries: makeSummaryFallbacks(ctx) }
+  }
+
+  const violations = validateSummaries(parsed)
+  if (violations.length === 0) return { summaries: parsed }
+
+  if (!isRetry) {
+    console.warn("[summary] Validation violations, retrying:", violations)
+    return _callSummaryWithRetry(ctx, true)
+  }
+
+  console.warn("[summary] Fallback after retry. Violations:", violations)
+  return { summaries: makeSummaryFallbacks(ctx) }
 }

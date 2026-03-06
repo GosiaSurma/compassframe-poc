@@ -2,7 +2,7 @@ import { getServerSession } from "next-auth"
 import { notFound, redirect } from "next/navigation"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { callSummary } from "@/lib/llm"
+import { callSummary, type SummaryContext } from "@/lib/llm"
 import { SummaryClient } from "./summary-client"
 
 export default async function SummaryPage({
@@ -35,11 +35,49 @@ export default async function SummaryPage({
   })
 
   if (summaries.length === 0) {
-    const conversation = reflectionSession.messages
-      .map(m => `${m.role === "user" ? "Person" : "Companion"}: ${m.content}`)
-      .join("\n\n")
+    const msgs = reflectionSession.messages
 
-    const { summaries: texts } = await callSummary(conversation)
+    // Build conversation lines: assistant turns combine reflection_text + followUpQuestion
+    const conversationLines = msgs.map(m => {
+      if (m.role === "user") return `Person: ${m.content}`
+      const parts = [m.content]
+      if (m.followUpQuestion) parts.push(m.followUpQuestion)
+      return `Companion: ${parts.join("\n")}`
+    })
+
+    // Unique emotion words from assistant turns, in order of appearance
+    const emotionalThemes = Array.from(
+      new Set(
+        msgs
+          .filter(m => m.role === "assistant" && m.emotionLabel)
+          .map(m => m.emotionLabel!),
+      ),
+    )
+
+    const acceptedInsights = msgs
+      .filter(m => m.insightResponse === "resonates" && m.insightText)
+      .map(m => m.insightText!)
+
+    const clarifiedInsights = msgs
+      .filter(m => m.insightResponse === "clarify" && m.insightText)
+      .map(m => m.insightText!)
+
+    const finalUserTurns = msgs
+      .filter(m => m.role === "user")
+      .slice(-3)
+      .map(m => m.content)
+
+    const summaryCtx: SummaryContext = {
+      topic: reflectionSession.topic,
+      roundCount: reflectionSession.roundCount,
+      conversationLines,
+      emotionalThemes,
+      acceptedInsights,
+      clarifiedInsights,
+      finalUserTurns,
+    }
+
+    const { summaries: texts } = await callSummary(summaryCtx)
 
     summaries = await prisma.$transaction(
       texts.map(text => prisma.reflectionSummary.create({ data: { sessionId, text } })),
