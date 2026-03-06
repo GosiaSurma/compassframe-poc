@@ -2,7 +2,7 @@ import { NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
-import { callMI } from "@/lib/llm"
+import { callMI, type MIResponse } from "@/lib/llm"
 import { buildOpeningSystemPrompt, getOpeningPrompt } from "@/lib/mi-prompts"
 
 export async function POST(req: Request) {
@@ -21,19 +21,23 @@ export async function POST(req: Request) {
   })
 
   // Generate the opening AI message
-  let opening: { content: string; emotionLabel: string | null; insight: string | null }
+  let opening: MIResponse
   try {
     opening = await callMI(
       [{ role: "user", content: getOpeningPrompt(topicStr) }],
       buildOpeningSystemPrompt(topicStr),
+      { topic: topicStr, stage: "situation" },
     )
   } catch (err) {
     console.error("[reflection:open]", err)
     opening = {
-      content:
-        `Welcome. I'm here to explore alongside you. You've chosen to reflect on "${topicStr}" — what feels like the right place to start?`,
-      emotionLabel: null,
-      insight: null,
+      reflection_text: `Welcome. You've chosen to reflect on "${topicStr}".`,
+      emotion_label: "",
+      follow_up_question: "What feels like the right place to start?",
+      highlighted_insight: null,
+      progress_stage: "situation",
+      topic_anchor: topicStr,
+      summary_readiness_score: 0,
     }
   }
 
@@ -41,9 +45,13 @@ export async function POST(req: Request) {
     data: {
       sessionId: reflectionSession.id,
       role: "assistant",
-      content: opening.content,
-      emotionLabel: opening.emotionLabel,
-      insightText: opening.insight,
+      content: opening.reflection_text,
+      emotionLabel: opening.emotion_label || null,
+      followUpQuestion: opening.follow_up_question,
+      progressStage: opening.progress_stage,
+      summaryReadinessScore: opening.summary_readiness_score,
+      symbolicMarker: opening.highlighted_insight?.symbolic_marker ?? null,
+      insightText: opening.highlighted_insight?.enabled ? opening.highlighted_insight.text : null,
     },
   })
 

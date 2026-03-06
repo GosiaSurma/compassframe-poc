@@ -4,8 +4,13 @@ export interface MessageData {
   id: string
   role: string
   content: string
+  followUpQuestion: string | null
   insightText: string | null
   insightResponse: string | null
+  emotionLabel: string | null
+  progressStage: string | null
+  symbolicMarker: string | null
+  summaryReadinessScore: number | null
 }
 
 interface Props {
@@ -20,7 +25,6 @@ export function ChatBubble({ message, responded, magicalMode, onInsightResponse,
   const isUser = message.role === "user"
   const isFull = magicalMode === "full"
 
-  // Assistant avatar: ✦ in Off/Light, ✧ with a violet tint in Full
   const avatarBg = isUser
     ? "bg-brand-600 text-white"
     : isFull
@@ -48,6 +52,13 @@ export function ChatBubble({ message, responded, magicalMode, onInsightResponse,
           }`}
         >
           {message.content}
+
+          {/* Follow-up question rendered as a visually distinct block */}
+          {!isUser && message.followUpQuestion && (
+            <p className="mt-2.5 pt-2.5 border-t border-gray-100 text-gray-600 italic">
+              {message.followUpQuestion}
+            </p>
+          )}
         </div>
 
         {!isUser && message.insightText && (
@@ -57,6 +68,7 @@ export function ChatBubble({ message, responded, magicalMode, onInsightResponse,
             responded={responded}
             currentResponse={message.insightResponse}
             magicalMode={magicalMode}
+            symbolicMarker={message.symbolicMarker}
             onRespond={(id, r) => {
               onInsightResponse(id, r)
               if (r === "clarify") onClarify()

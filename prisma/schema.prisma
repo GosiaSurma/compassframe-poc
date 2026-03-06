@@ -150,8 +150,13 @@ model Message {
   // "resonates" | "not_quite" | "clarify" — set when user responds
   insightResponse String?
   // Single approved emotion word named by the assistant in this turn
-  emotionLabel    String?
-  createdAt       DateTime @default(now())
+  emotionLabel          String?
+  // Structured MI response fields
+  followUpQuestion      String?
+  progressStage         String?
+  summaryReadinessScore Int?
+  symbolicMarker        String?
+  createdAt             DateTime @default(now())
 
   session ReflectionSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
 }

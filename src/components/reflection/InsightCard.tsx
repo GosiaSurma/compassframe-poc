@@ -18,7 +18,8 @@ const RESPONSE_LABELS: Record<string, string> = {
 
 const ELEMENTS = [
   {
-    name: "Fire", emoji: "🔥",
+    key:     "fire",
+    name:    "Fire", emoji: "🔥",
     card:    "bg-rose-50 border-rose-200",
     heading: "text-rose-600",
     body:    "text-rose-900",
@@ -26,7 +27,8 @@ const ELEMENTS = [
     done:    "text-rose-500",
   },
   {
-    name: "Water", emoji: "💧",
+    key:     "water",
+    name:    "Water", emoji: "💧",
     card:    "bg-blue-50 border-blue-200",
     heading: "text-blue-600",
     body:    "text-blue-900",
@@ -34,7 +36,8 @@ const ELEMENTS = [
     done:    "text-blue-500",
   },
   {
-    name: "Air", emoji: "🌬️",
+    key:     "air",
+    name:    "Air", emoji: "🌬️",
     card:    "bg-violet-50 border-violet-200",
     heading: "text-violet-600",
     body:    "text-violet-900",
@@ -42,21 +45,27 @@ const ELEMENTS = [
     done:    "text-violet-500",
   },
   {
-    name: "Earth", emoji: "🌿",
+    key:     "earth",
+    name:    "Earth", emoji: "🌿",
     card:    "bg-emerald-50 border-emerald-200",
     heading: "text-emerald-600",
     body:    "text-emerald-900",
     btn:     "border-emerald-300 text-emerald-800 hover:bg-emerald-100 active:bg-emerald-200",
     done:    "text-emerald-500",
   },
-]
+] as const
 
-/** Deterministic element from message ID — same insight always gets the same element */
-function pickElement(messageId: string) {
+type ElementKey = "fire" | "water" | "air" | "earth"
+
+/** Find element by AI-supplied marker key. */
+function elementByMarker(marker: string): typeof ELEMENTS[number] | null {
+  return ELEMENTS.find(e => e.key === marker) ?? null
+}
+
+/** Deterministic element from message ID — fallback when no marker supplied. */
+function pickElement(messageId: string): typeof ELEMENTS[number] {
   let hash = 0
-  for (let i = 0; i < messageId.length; i++) {
-    hash += messageId.charCodeAt(i)
-  }
+  for (let i = 0; i < messageId.length; i++) hash += messageId.charCodeAt(i)
   return ELEMENTS[hash % ELEMENTS.length]
 }
 
@@ -78,6 +87,7 @@ interface Props {
   responded: boolean
   currentResponse: string | null
   magicalMode: string
+  symbolicMarker: string | null
   onRespond: (messageId: string, response: InsightResponse) => void
 }
 
@@ -87,19 +97,28 @@ export function InsightCard({
   responded,
   currentResponse,
   magicalMode,
+  symbolicMarker,
   onRespond,
 }: Props) {
   const isFull = magicalMode === "full"
   const isLight = magicalMode === "light"
 
-  const element = isFull ? pickElement(messageId) : null
+  // Resolve element: AI marker takes priority; hash fallback for full mode
+  const resolvedMarker = (isFull || isLight) ? (symbolicMarker as ElementKey | null) : null
+  const element = isFull
+    ? (resolvedMarker ? elementByMarker(resolvedMarker) : null) ?? pickElement(messageId)
+    : null
+
   const el = element ?? BASE
 
+  // Heading: Full = element name + emoji; Light with marker = emoji only; Light plain = ✦
   const headingText = element
     ? `${element.emoji} ${element.name} Insight`
-    : isLight
-      ? "✦ Insight"
-      : "Highlighted Insight"
+    : (isLight && resolvedMarker)
+      ? `${elementByMarker(resolvedMarker)?.emoji ?? "✦"} Insight`
+      : isLight
+        ? "✦ Insight"
+        : "Highlighted Insight"
 
   return (
     <div className={`border rounded-2xl px-4 py-3 max-w-[88%] ${el.card}`}>

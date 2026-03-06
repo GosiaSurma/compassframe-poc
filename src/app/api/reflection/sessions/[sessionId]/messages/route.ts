@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { callMI } from "@/lib/llm"
-import { buildMISystemPrompt, getOpeningPrompt } from "@/lib/mi-prompts"
+import { buildMISystemPrompt, getBand, getOpeningPrompt } from "@/lib/mi-prompts"
 
 const MAX_ROUNDS = 12
 
@@ -36,23 +36,31 @@ export async function POST(
     return NextResponse.json({ error: "Maximum rounds reached" }, { status: 400 })
   }
 
-  // Extract anti-repetition context from prior assistant messages
   const assistantMessages = reflectionSession.messages.filter(m => m.role === "assistant")
+
+  // Anti-repetition context
   const usedEmotions = assistantMessages
     .map(m => m.emotionLabel)
     .filter((e): e is string => e !== null && e !== "")
   const priorInsights = assistantMessages
     .map(m => m.insightText)
     .filter((i): i is string => i !== null && i !== "")
+  const lastAssistant = assistantMessages[assistantMessages.length - 1]
+  const priorQuestion = lastAssistant?.followUpQuestion ?? null
 
   const nextRound = reflectionSession.roundCount + 1
+  const stage = getBand(nextRound)
 
-  // Build LLM history: topic-specific opening, then all stored messages, then new message
+  // Build LLM history: topic-specific opening, then stored messages, then new user message
   const history: { role: "user" | "assistant"; content: string }[] = [
     { role: "user", content: getOpeningPrompt(reflectionSession.topic) },
     ...reflectionSession.messages.map(m => ({
       role: m.role as "user" | "assistant",
-      content: m.content,
+      // Reconstruct assistant turns as they appeared: reflection + question combined
+      content:
+        m.role === "assistant" && m.followUpQuestion
+          ? `${m.content}\n\n${m.followUpQuestion}`
+          : m.content,
     })),
     { role: "user", content: content.trim() },
   ]
@@ -63,7 +71,7 @@ export async function POST(
   })
 
   // Call LLM with round-aware prompt
-  let aiResponse: { content: string; emotionLabel: string | null; insight: string | null }
+  let aiResponse
   try {
     aiResponse = await callMI(
       history,
@@ -72,7 +80,9 @@ export async function POST(
         round: nextRound,
         usedEmotions,
         priorInsights,
+        priorQuestion,
       }),
+      { topic: reflectionSession.topic, stage },
     )
   } catch (err) {
     console.error("[reflection:message]", err)
@@ -86,9 +96,15 @@ export async function POST(
     data: {
       sessionId,
       role: "assistant",
-      content: aiResponse.content,
-      emotionLabel: aiResponse.emotionLabel,
-      insightText: aiResponse.insight,
+      content: aiResponse.reflection_text,
+      emotionLabel: aiResponse.emotion_label || null,
+      followUpQuestion: aiResponse.follow_up_question,
+      progressStage: aiResponse.progress_stage,
+      summaryReadinessScore: aiResponse.summary_readiness_score,
+      symbolicMarker: aiResponse.highlighted_insight?.symbolic_marker ?? null,
+      insightText: aiResponse.highlighted_insight?.enabled
+        ? aiResponse.highlighted_insight.text
+        : null,
     },
   })
 

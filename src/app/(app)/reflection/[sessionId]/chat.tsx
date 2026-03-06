@@ -89,8 +89,13 @@ export function Chat({ session, initialMessages, magicalMode }: Props) {
       id: tempId,
       role: "user",
       content: text,
+      followUpQuestion: null,
       insightText: null,
       insightResponse: null,
+      emotionLabel: null,
+      progressStage: null,
+      symbolicMarker: null,
+      summaryReadinessScore: null,
     }
 
     setMessages(prev => [...prev, optimisticMsg])

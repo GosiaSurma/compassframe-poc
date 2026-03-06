@@ -32,8 +32,13 @@ export default async function ReflectionSessionPage({
     id: m.id,
     role: m.role,
     content: m.content,
+    followUpQuestion: m.followUpQuestion,
     insightText: m.insightText,
     insightResponse: m.insightResponse,
+    emotionLabel: m.emotionLabel,
+    progressStage: m.progressStage,
+    symbolicMarker: m.symbolicMarker,
+    summaryReadinessScore: m.summaryReadinessScore,
   }))
 
   return (

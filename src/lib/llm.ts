@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk"
 
 const MODEL = "claude-haiku-4-5-20251001"
-const MAX_TOKENS = 600
+const MAX_TOKENS = 700
 const SUMMARY_MAX_TOKENS = 600
 
 export interface LLMMessage {
@@ -9,10 +9,25 @@ export interface LLMMessage {
   content: string
 }
 
+export interface HighlightedInsight {
+  enabled: boolean
+  text: string
+  symbolic_marker: "fire" | "water" | "air" | "earth" | null
+}
+
 export interface MIResponse {
-  content: string
-  emotionLabel: string | null
-  insight: string | null
+  reflection_text: string
+  emotion_label: string
+  follow_up_question: string
+  highlighted_insight: HighlightedInsight | null
+  progress_stage: "situation" | "feeling" | "meaning" | "consolidation"
+  topic_anchor: string
+  summary_readiness_score: number
+}
+
+interface MICallContext {
+  topic: string
+  stage: MIResponse["progress_stage"]
 }
 
 let _client: Anthropic | null = null
@@ -28,7 +43,7 @@ const isStub =
   !process.env.ANTHROPIC_API_KEY ||
   process.env.ANTHROPIC_API_KEY === "sk-ant-placeholder"
 
-// ── Response validator ────────────────────────────────────────────────────
+// ── Validation ────────────────────────────────────────────────────────────
 
 const FORBIDDEN_CLINICAL = [
   "anxiety", "depression", "trauma", "disorder", "symptoms",
@@ -44,25 +59,100 @@ const FORBIDDEN_ADVICE = [
   "it would help if", "a good idea would",
 ]
 
-/**
- * Returns a list of violations in the text. Empty array = clean.
- * Only applied to the assistant's content, not user messages.
- */
-export function validateMIContent(text: string): string[] {
-  const lower = text.toLowerCase()
+const FORBIDDEN_GENERIC = [
+  "you're exploring something meaningful",
+  "you are exploring something meaningful",
+  "it sounds like you're on a journey",
+  "this is a journey",
+  "i'm here to help",
+  "i am here to help",
+  "i'm here to support",
+  "that's really important",
+  "that is really important",
+]
+
+/** Returns a list of violations. Empty array = clean. */
+export function validateMIResponse(r: MIResponse): string[] {
+  const combined = (r.reflection_text + " " + r.follow_up_question).toLowerCase()
   const violations: string[] = []
-  for (const term of [...FORBIDDEN_CLINICAL, ...FORBIDDEN_ADVICE]) {
-    if (lower.includes(term)) violations.push(term)
+  for (const term of [...FORBIDDEN_CLINICAL, ...FORBIDDEN_ADVICE, ...FORBIDDEN_GENERIC]) {
+    if (combined.includes(term)) violations.push(term)
   }
-  if (!text.includes("?")) violations.push("missing question mark")
+  if (!r.follow_up_question.includes("?")) {
+    violations.push("missing question mark in follow_up_question")
+  }
   return violations
 }
 
-const SAFE_FALLBACK: MIResponse = {
-  content:
-    "It sounds like there's a lot beneath the surface of what you're sharing. I'm sitting with that. What feels most true for you right now?",
-  emotionLabel: null,
-  insight: null,
+// ── Parsing ────────────────────────────────────────────────────────────────
+
+const VALID_STAGES = new Set(["situation", "feeling", "meaning", "consolidation"])
+const VALID_MARKERS = new Set(["fire", "water", "air", "earth"])
+
+function parseMIResponse(raw: string): MIResponse | null {
+  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
+  try {
+    const obj = JSON.parse(cleaned) as Record<string, unknown>
+
+    if (
+      typeof obj.reflection_text !== "string" || !obj.reflection_text.trim() ||
+      typeof obj.follow_up_question !== "string" || !obj.follow_up_question.trim() ||
+      typeof obj.progress_stage !== "string" ||
+      typeof obj.topic_anchor !== "string" ||
+      typeof obj.summary_readiness_score !== "number"
+    ) return null
+
+    if (!VALID_STAGES.has(obj.progress_stage as string)) return null
+
+    const score = obj.summary_readiness_score as number
+    if (score < 0 || score > 100) return null
+
+    const emotionLabel =
+      typeof obj.emotion_label === "string" ? obj.emotion_label.trim() : ""
+
+    let insight: HighlightedInsight | null = null
+    const hi = obj.highlighted_insight
+    if (hi && typeof hi === "object") {
+      const hiObj = hi as Record<string, unknown>
+      if (hiObj.enabled === true && typeof hiObj.text === "string" && hiObj.text.trim()) {
+        const rawMarker = hiObj.symbolic_marker
+        const marker =
+          typeof rawMarker === "string" && VALID_MARKERS.has(rawMarker)
+            ? (rawMarker as "fire" | "water" | "air" | "earth")
+            : null
+        insight = { enabled: true, text: hiObj.text.trim(), symbolic_marker: marker }
+      }
+    }
+
+    return {
+      reflection_text: (obj.reflection_text as string).trim(),
+      emotion_label: emotionLabel,
+      follow_up_question: (obj.follow_up_question as string).trim(),
+      highlighted_insight: insight,
+      progress_stage: obj.progress_stage as MIResponse["progress_stage"],
+      topic_anchor: (obj.topic_anchor as string).trim(),
+      summary_readiness_score: Math.round(score),
+    }
+  } catch {
+    return null
+  }
+}
+
+// ── Fallback ───────────────────────────────────────────────────────────────
+
+function makeSafeFallback(context?: MICallContext): MIResponse {
+  const topic = context?.topic ?? "this"
+  const stage = context?.stage ?? "situation"
+  return {
+    reflection_text:
+      "I want to make sure I'm really hearing what you're saying about " + topic + ".",
+    emotion_label: "unsettled",
+    follow_up_question: `What feels most significant to you about ${topic} right now?`,
+    highlighted_insight: null,
+    progress_stage: stage,
+    topic_anchor: topic,
+    summary_readiness_score: 10,
+  }
 }
 
 // ── MI call ───────────────────────────────────────────────────────────────
@@ -70,28 +160,40 @@ const SAFE_FALLBACK: MIResponse = {
 export async function callMI(
   messages: LLMMessage[],
   systemPrompt: string,
+  context?: MICallContext,
 ): Promise<MIResponse> {
-  // Dev stub — allows full UI testing without an API key
+  // Dev stub — full UI testing without an API key
   if (isStub) {
     await new Promise(r => setTimeout(r, 800))
     const last = messages[messages.length - 1]?.content ?? ""
+    const topic = context?.topic ?? "this topic"
+    const stage = context?.stage ?? "situation"
     return {
-      content: `It sounds like you're exploring something meaningful here. I'm hearing a sense of uncertainty in what you've shared. What feels most important to you about "${last.slice(0, 40)}…"?`,
-      emotionLabel: "uncertain",
-      insight:
+      reflection_text: `It sounds like "${last.slice(0, 50).trim()}" carries real weight for you. I'm noticing a sense of uncertainty as you hold this.`,
+      emotion_label: "uncertain",
+      follow_up_question: `What aspect of ${topic} feels most present for you right now?`,
+      highlighted_insight:
         messages.length > 4
-          ? "I'm noticing that you keep returning to questions of expectation — both your own and others'. That might be worth sitting with."
+          ? {
+              enabled: true,
+              text: "I'm noticing that questions of expectation keep surfacing — both your own and others'. That pattern might be worth sitting with.",
+              symbolic_marker: "water",
+            }
           : null,
+      progress_stage: stage,
+      topic_anchor: topic,
+      summary_readiness_score: Math.min(10 + messages.length * 5, 80),
     }
   }
 
-  return _callMIWithRetry(messages, systemPrompt, false)
+  return _callMIWithRetry(messages, systemPrompt, false, context)
 }
 
 async function _callMIWithRetry(
   messages: LLMMessage[],
   systemPrompt: string,
   isRetry: boolean,
+  context?: MICallContext,
 ): Promise<MIResponse> {
   const client = getClient()
 
@@ -104,39 +206,34 @@ async function _callMIWithRetry(
 
   const raw =
     response.content[0].type === "text" ? response.content[0].text : ""
-  const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
 
-  let parsed: MIResponse
-  try {
-    const obj = JSON.parse(cleaned) as { content?: string; emotionLabel?: string | null; insight?: string | null }
-    parsed = {
-      content: obj.content ?? raw,
-      emotionLabel: obj.emotionLabel ?? null,
-      insight: obj.insight ?? null,
+  const parsed = parseMIResponse(raw)
+
+  if (!parsed) {
+    if (!isRetry) {
+      const correctionPrompt =
+        systemPrompt +
+        "\n\n⚠ CORRECTION REQUIRED: Your previous response was not valid JSON matching the required schema. " +
+        "Return ONLY a valid JSON object with all required fields: reflection_text, emotion_label, follow_up_question, highlighted_insight, progress_stage, topic_anchor, summary_readiness_score. No markdown fences."
+      return _callMIWithRetry(messages, correctionPrompt, true, context)
     }
-  } catch {
-    parsed = { content: raw, emotionLabel: null, insight: null }
+    console.warn("[MI parser] Fallback used — could not parse structured response.")
+    return makeSafeFallback(context)
   }
 
-  // ── Validate ──────────────────────────────────────────────────────
-  const violations = validateMIContent(parsed.content)
-
+  const violations = validateMIResponse(parsed)
   if (violations.length === 0) return parsed
 
-  // First violation → retry once with a correction appended to system prompt
   if (!isRetry) {
     const correctionPrompt =
       systemPrompt +
       `\n\n⚠ CORRECTION REQUIRED: Your previous response contained restricted term(s): "${violations.join('", "')}". ` +
-      `Rewrite your response without using any of these terms. ` +
-      `Keep the same empathic structure but use only approved language.`
-
-    return _callMIWithRetry(messages, correctionPrompt, true)
+      `Rewrite without using any of these terms. Keep the same empathic structure but use only approved language.`
+    return _callMIWithRetry(messages, correctionPrompt, true, context)
   }
 
-  // Second violation → safe fallback (log for monitoring)
-  console.warn("[MI validator] Fallback used after retry. Violations:", violations)
-  return SAFE_FALLBACK
+  console.warn("[MI validator] Fallback after retry. Violations:", violations)
+  return makeSafeFallback(context)
 }
 
 // ── Summary generation ────────────────────────────────────────────────────
