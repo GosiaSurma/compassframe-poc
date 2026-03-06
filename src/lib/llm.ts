@@ -11,6 +11,7 @@ export interface LLMMessage {
 
 export interface MIResponse {
   content: string
+  emotionLabel: string | null
   insight: string | null
 }
 
@@ -53,12 +54,14 @@ export function validateMIContent(text: string): string[] {
   for (const term of [...FORBIDDEN_CLINICAL, ...FORBIDDEN_ADVICE]) {
     if (lower.includes(term)) violations.push(term)
   }
+  if (!text.includes("?")) violations.push("missing question mark")
   return violations
 }
 
 const SAFE_FALLBACK: MIResponse = {
   content:
     "It sounds like there's a lot beneath the surface of what you're sharing. I'm sitting with that. What feels most true for you right now?",
+  emotionLabel: null,
   insight: null,
 }
 
@@ -74,6 +77,7 @@ export async function callMI(
     const last = messages[messages.length - 1]?.content ?? ""
     return {
       content: `It sounds like you're exploring something meaningful here. I'm hearing a sense of uncertainty in what you've shared. What feels most important to you about "${last.slice(0, 40)}…"?`,
+      emotionLabel: "uncertain",
       insight:
         messages.length > 4
           ? "I'm noticing that you keep returning to questions of expectation — both your own and others'. That might be worth sitting with."
@@ -104,10 +108,14 @@ async function _callMIWithRetry(
 
   let parsed: MIResponse
   try {
-    const obj = JSON.parse(cleaned) as { content?: string; insight?: string | null }
-    parsed = { content: obj.content ?? raw, insight: obj.insight ?? null }
+    const obj = JSON.parse(cleaned) as { content?: string; emotionLabel?: string | null; insight?: string | null }
+    parsed = {
+      content: obj.content ?? raw,
+      emotionLabel: obj.emotionLabel ?? null,
+      insight: obj.insight ?? null,
+    }
   } catch {
-    parsed = { content: raw, insight: null }
+    parsed = { content: raw, emotionLabel: null, insight: null }
   }
 
   // ── Validate ──────────────────────────────────────────────────────

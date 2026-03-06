@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { callMI } from "@/lib/llm"
-import { getMISystemPrompt, getOpeningPrompt } from "@/lib/mi-prompts"
+import { buildOpeningSystemPrompt, getOpeningPrompt } from "@/lib/mi-prompts"
 
 export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
@@ -21,17 +21,18 @@ export async function POST(req: Request) {
   })
 
   // Generate the opening AI message
-  let opening: { content: string; insight: string | null }
+  let opening: { content: string; emotionLabel: string | null; insight: string | null }
   try {
     opening = await callMI(
-      [{ role: "user", content: getOpeningPrompt() }],
-      getMISystemPrompt(topicStr),
+      [{ role: "user", content: getOpeningPrompt(topicStr) }],
+      buildOpeningSystemPrompt(topicStr),
     )
   } catch (err) {
     console.error("[reflection:open]", err)
     opening = {
       content:
-        "Welcome. I'm here to listen and explore alongside you. What's been on your mind lately about this topic?",
+        `Welcome. I'm here to explore alongside you. You've chosen to reflect on "${topicStr}" — what feels like the right place to start?`,
+      emotionLabel: null,
       insight: null,
     }
   }
@@ -41,6 +42,7 @@ export async function POST(req: Request) {
       sessionId: reflectionSession.id,
       role: "assistant",
       content: opening.content,
+      emotionLabel: opening.emotionLabel,
       insightText: opening.insight,
     },
   })

@@ -3,7 +3,7 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { callMI } from "@/lib/llm"
-import { getMISystemPrompt, getOpeningPrompt } from "@/lib/mi-prompts"
+import { buildMISystemPrompt, getOpeningPrompt } from "@/lib/mi-prompts"
 
 const MAX_ROUNDS = 12
 
@@ -36,9 +36,20 @@ export async function POST(
     return NextResponse.json({ error: "Maximum rounds reached" }, { status: 400 })
   }
 
-  // Build LLM history: synthetic "Begin." first, then all stored messages, then new message
+  // Extract anti-repetition context from prior assistant messages
+  const assistantMessages = reflectionSession.messages.filter(m => m.role === "assistant")
+  const usedEmotions = assistantMessages
+    .map(m => m.emotionLabel)
+    .filter((e): e is string => e !== null && e !== "")
+  const priorInsights = assistantMessages
+    .map(m => m.insightText)
+    .filter((i): i is string => i !== null && i !== "")
+
+  const nextRound = reflectionSession.roundCount + 1
+
+  // Build LLM history: topic-specific opening, then all stored messages, then new message
   const history: { role: "user" | "assistant"; content: string }[] = [
-    { role: "user", content: getOpeningPrompt() },
+    { role: "user", content: getOpeningPrompt(reflectionSession.topic) },
     ...reflectionSession.messages.map(m => ({
       role: m.role as "user" | "assistant",
       content: m.content,
@@ -51,10 +62,18 @@ export async function POST(
     data: { sessionId, role: "user", content: content.trim() },
   })
 
-  // Call LLM
-  let aiResponse: { content: string; insight: string | null }
+  // Call LLM with round-aware prompt
+  let aiResponse: { content: string; emotionLabel: string | null; insight: string | null }
   try {
-    aiResponse = await callMI(history, getMISystemPrompt(reflectionSession.topic))
+    aiResponse = await callMI(
+      history,
+      buildMISystemPrompt({
+        topic: reflectionSession.topic,
+        round: nextRound,
+        usedEmotions,
+        priorInsights,
+      }),
+    )
   } catch (err) {
     console.error("[reflection:message]", err)
     return NextResponse.json(
@@ -68,6 +87,7 @@ export async function POST(
       sessionId,
       role: "assistant",
       content: aiResponse.content,
+      emotionLabel: aiResponse.emotionLabel,
       insightText: aiResponse.insight,
     },
   })
