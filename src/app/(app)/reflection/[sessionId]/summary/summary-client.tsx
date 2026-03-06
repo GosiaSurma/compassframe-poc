@@ -134,7 +134,7 @@ export function SummaryClient({
     const editedText = summaries.find(s => s.id === selectedId)?.text
     const ok = await completeSession(selectedId, editedText)
     setSaving(false)
-    if (ok) router.push("/challenge")
+    if (ok) router.push(`/challenge?from=${sessionId}`)
   }
 
   async function handleShareOrGift() {

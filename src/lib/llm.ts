@@ -3,6 +3,7 @@ import Anthropic from "@anthropic-ai/sdk"
 const MODEL = "claude-haiku-4-5-20251001"
 const MAX_TOKENS = 700
 const SUMMARY_MAX_TOKENS = 600
+const CHALLENGE_MAX_TOKENS = 300
 
 export interface LLMMessage {
   role: "user" | "assistant"
@@ -436,4 +437,130 @@ async function _callSummaryWithRetry(
 
   console.warn("[summary] Fallback after retry. Violations:", violations)
   return { summaries: makeSummaryFallbacks(ctx) }
+}
+
+// ── Challenge suggestion generation ──────────────────────────────────────
+
+export interface ChallengeContext {
+  topic: string
+  summaryText: string
+  emotionalTheme: string | null
+  finalUserTurns: string[]
+}
+
+export function buildChallengeSuggestionPrompt(ctx: ChallengeContext): string {
+  const { topic, summaryText, emotionalTheme, finalUserTurns } = ctx
+
+  const emotionLine = emotionalTheme ? `Emotional theme: ${emotionalTheme}` : ""
+  const finalTurnsBlock =
+    finalUserTurns.length > 0
+      ? `What the person said near the end:\n${finalUserTurns
+          .map((t, i) => `${i + 1}. "${t.slice(0, 140)}"`)
+          .join("\n")}`
+      : ""
+
+  return `You generate 2–3 gentle, first-person action suggestions for someone who has just completed a personal reflection.
+
+These are NOT tasks or advice. They are soft intentions the person might choose to explore.
+
+━━ REFLECTION CONTEXT ━━
+Topic: "${topic}"
+How the person summarised it: "${summaryText}"
+${emotionLine}
+${finalTurnsBlock}
+
+━━ RULES ━━
+• Every suggestion is written in first person
+• Begin each with one of: "One thing I want to try…", "A small step I could take…", "Something I want to express or test…", "One thing I want to notice…"
+• Keep each to 1 sentence, 10–25 words
+• Suggestions must connect specifically to this reflection — reference the topic, emotion, or something the person actually said
+• Make them small and concrete where possible — something reachable in the next few days
+• Time-bound where it fits naturally (e.g. "…before the end of this week")
+• No advice language: no "you should", "you need to", "make sure to", "try to"
+• No praise, no judgment, no clinical language
+
+━━ OUTPUT — valid JSON, no markdown fences ━━
+{
+  "suggestions": [
+    "<first suggestion>",
+    "<second suggestion>",
+    "<optional third suggestion>"
+  ]
+}
+Return 2 suggestions if the reflection is thin; 3 if it is rich enough to support a third distinct intention.`
+}
+
+const CHALLENGE_FORBIDDEN = [
+  "you should", "you need to", "make sure", "try to",
+  "anxiety", "depression", "trauma", "diagnosis",
+]
+
+export function validateChallengeSuggestions(suggestions: string[]): string[] {
+  if (suggestions.length < 2) return ["fewer than 2 suggestions returned"]
+  const violations: string[] = []
+  suggestions.forEach((s, i) => {
+    const lower = s.toLowerCase()
+    const words = s.trim().split(/\s+/).length
+    if (words < 8) violations.push(`suggestion ${i + 1}: too short`)
+    if (words > 35) violations.push(`suggestion ${i + 1}: too long`)
+    for (const phrase of CHALLENGE_FORBIDDEN) {
+      if (lower.includes(phrase)) violations.push(`suggestion ${i + 1}: forbidden phrase "${phrase}"`)
+    }
+  })
+  return violations
+}
+
+function makeChallengeFallbacks(ctx: ChallengeContext): string[] {
+  const { topic, emotionalTheme } = ctx
+  return [
+    `One thing I want to try is having a small, honest conversation about ${topic} with someone I trust.`,
+    `A small step I could take is noticing when ${emotionalTheme ?? "this feeling"} comes up for me around ${topic} and pausing before reacting.`,
+  ]
+}
+
+export async function callChallengeSuggestions(
+  ctx: ChallengeContext,
+): Promise<{ suggestions: string[] }> {
+  if (isStub) {
+    await new Promise(r => setTimeout(r, 600))
+    return { suggestions: makeChallengeFallbacks(ctx) }
+  }
+
+  const client = getClient()
+
+  const tryOnce = async (): Promise<string[] | null> => {
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: CHALLENGE_MAX_TOKENS,
+      system: buildChallengeSuggestionPrompt(ctx),
+      messages: [{ role: "user", content: "Generate the suggestions now." }],
+    })
+    const raw = response.content[0].type === "text" ? response.content[0].text : ""
+    const cleaned = raw.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "").trim()
+    try {
+      const obj = JSON.parse(cleaned) as { suggestions?: unknown }
+      if (Array.isArray(obj.suggestions)) {
+        const valid = (obj.suggestions as unknown[]).filter(
+          (s): s is string => typeof s === "string" && s.trim().length > 0,
+        )
+        if (valid.length >= 2) return valid.slice(0, 3)
+      }
+    } catch { /* fall through */ }
+    return null
+  }
+
+  let parsed = await tryOnce()
+  if (!parsed) parsed = await tryOnce()
+  if (!parsed) {
+    console.warn("[challenge] Fallback — could not parse suggestions.")
+    return { suggestions: makeChallengeFallbacks(ctx) }
+  }
+
+  const violations = validateChallengeSuggestions(parsed)
+  if (violations.length > 0) {
+    console.warn("[challenge] Suggestion violations:", violations)
+    // Still return them — minor violations are acceptable for suggestions
+  }
+
+  return { suggestions: parsed }
 }

@@ -16,6 +16,8 @@ interface LatestContext {
   sessionId: string
   topic: string
   summaryText: string | null
+  emotionalTheme: string | null
+  suggestions: string[]
 }
 
 interface Props {
@@ -29,6 +31,17 @@ export function ChallengeClient({ latestContext, challenges: initial }: Props) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+
+  const hasSuggestions = (latestContext?.suggestions.length ?? 0) > 0
+
+  function pickSuggestion(s: string) {
+    setText(s)
+    // Scroll the textarea into view on mobile
+    setTimeout(() => {
+      document.getElementById("challenge-textarea")?.scrollIntoView({ behavior: "smooth", block: "center" })
+      document.getElementById("challenge-textarea")?.focus()
+    }, 50)
+  }
 
   async function handleAdd() {
     if (!text.trim()) return
@@ -85,30 +98,74 @@ export function ChallengeClient({ latestContext, challenges: initial }: Props) {
 
   return (
     <div className="max-w-2xl mx-auto px-4 py-8">
-      <h1 className="text-xl font-semibold text-gray-900 mb-1">Challenge</h1>
+      {/* Header */}
+      <div className="flex items-start justify-between mb-1">
+        <h1 className="text-xl font-semibold text-gray-900">Challenge</h1>
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 border border-gray-200 rounded-full px-2 py-0.5 mt-1">
+          POC
+        </span>
+      </div>
       <p className="text-sm text-gray-500 mb-6">
-        Turn your reflection into a small, concrete action.
+        Turn your reflection into a small, concrete step.
       </p>
 
-      {/* Context card */}
+      {/* Context card — only when coming from a reflection */}
       {latestContext?.summaryText && (
         <div className="bg-brand-50 border border-brand-100 rounded-2xl p-4 mb-6">
           <p className="text-xs font-medium text-brand-600 mb-1">
             From your reflection · {latestContext.topic}
+            {latestContext.emotionalTheme && (
+              <span className="ml-2 text-brand-400">· {latestContext.emotionalTheme}</span>
+            )}
           </p>
           <p className="text-sm text-gray-700 leading-relaxed">{latestContext.summaryText}</p>
         </div>
       )}
 
-      {/* New challenge form */}
+      {/* Suggested actions — only when coming via Proceed */}
+      {hasSuggestions && (
+        <div className="mb-6">
+          <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-3">
+            Suggested next steps
+          </p>
+          <div className="space-y-2">
+            {latestContext!.suggestions.map((s, i) => (
+              <button
+                key={i}
+                onClick={() => pickSuggestion(s)}
+                className={cn(
+                  "w-full text-left rounded-xl border-2 px-4 py-3 text-sm leading-relaxed transition-all",
+                  text === s
+                    ? "border-brand-500 bg-brand-50 text-brand-800"
+                    : "border-gray-100 bg-white text-gray-700 hover:border-brand-200 hover:bg-gray-50",
+                )}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 mt-2.5">
+            Select one to edit it, or write your own below.
+          </p>
+        </div>
+      )}
+
+      {/* Challenge form */}
       <div className="bg-white border border-gray-100 rounded-2xl p-5 mb-8">
         <label className="block text-sm font-medium text-gray-700 mb-2">
-          What&apos;s one thing you&apos;ll try or do differently?
+          {hasSuggestions
+            ? "Edit the suggestion or write your own"
+            : "What's one thing you'll try or do differently?"}
         </label>
         <textarea
+          id="challenge-textarea"
           value={text}
           onChange={e => setText(e.target.value)}
-          placeholder="e.g. I'll talk to my mum about this before Friday."
+          placeholder={
+            hasSuggestions
+              ? "Edit the suggestion above, or write something different…"
+              : "e.g. One thing I want to try is talking to my mum about this before Friday."
+          }
           rows={3}
           className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 mb-3"
         />
@@ -166,7 +223,7 @@ export function ChallengeClient({ latestContext, challenges: initial }: Props) {
         </section>
       )}
 
-      {challenges.length === 0 && (
+      {challenges.length === 0 && !hasSuggestions && (
         <p className="text-sm text-gray-400 text-center py-4">
           No challenges yet. Set your first one above.
         </p>
