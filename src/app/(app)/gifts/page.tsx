@@ -30,6 +30,7 @@ export default async function GiftsPage() {
       gifts={gifts.map(g => ({
         id: g.id,
         fromName: g.fromUser.name ?? g.fromUser.email,
+        title: g.title,
         message: g.message,
         readAt: g.readAt?.toISOString() ?? null,
         createdAt: g.createdAt.toISOString(),

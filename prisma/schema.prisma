@@ -177,6 +177,8 @@ model Gift {
   fromUserId String
   toUserId   String
   sessionId  String?
+  // Optional framing line written by the sender
+  title      String?
   message    String?
   readAt     DateTime?
   createdAt  DateTime  @default(now())

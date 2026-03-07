@@ -4,6 +4,7 @@ import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Gift } from "lucide-react"
 
 interface SummaryOption {
   id: string
@@ -50,6 +51,7 @@ export function SummaryClient({
 
   const [phase, setPhase] = useState<ActionPhase>("idle")
   const [recipientId, setRecipientId] = useState<string | null>(null)
+  const [giftTitle, setGiftTitle] = useState("")
   const [giftMessage, setGiftMessage] = useState("")
 
   const [saving, setSaving] = useState(false)
@@ -83,6 +85,14 @@ export function SummaryClient({
     setEditingId(null)
   }
 
+  function openGift() {
+    setPhase("gifting")
+    setRecipientId(null)
+    setGiftTitle("")
+    setGiftMessage("")
+    setError(null)
+  }
+
   // ── API calls ────────────────────────────────────────────────────
 
   async function completeSession(summaryId: string, editedText?: string): Promise<boolean> {
@@ -99,11 +109,20 @@ export function SummaryClient({
     return true
   }
 
-  async function createGift(toUserId: string, message?: string): Promise<boolean> {
+  async function createGift(
+    toUserId: string,
+    title?: string,
+    message?: string,
+  ): Promise<boolean> {
     const res = await fetch("/api/gifts", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ toUserId, sessionId, message }),
+      body: JSON.stringify({
+        toUserId,
+        sessionId,
+        title: title || undefined,
+        message: message || undefined,
+      }),
     })
     if (!res.ok) {
       const d = await res.json()
@@ -113,7 +132,7 @@ export function SummaryClient({
     return true
   }
 
-  // ── Post-actions ─────────────────────────────────────────────────
+  // ── Actions ──────────────────────────────────────────────────────
 
   async function handleSave() {
     if (!selectedId) return
@@ -137,22 +156,37 @@ export function SummaryClient({
     if (ok) router.push(`/challenge?from=${sessionId}`)
   }
 
-  async function handleShareOrGift() {
+  async function handleShare() {
     if (!selectedId || !recipientId) return
     setSaving(true)
     setError(null)
     if (editingId) commitEdit()
     const editedText = summaries.find(s => s.id === selectedId)?.text
+    const [completeOk, shareOk] = await Promise.all([
+      completeSession(selectedId, editedText),
+      createGift(recipientId),
+    ])
+    setSaving(false)
+    if (completeOk && shareOk) {
+      setDone(true)
+      setTimeout(() => router.push("/reflection"), 1500)
+    }
+  }
 
+  async function handleSendGift() {
+    if (!selectedId || !recipientId) return
+    setSaving(true)
+    setError(null)
+    if (editingId) commitEdit()
+    const editedText = summaries.find(s => s.id === selectedId)?.text
     const [completeOk, giftOk] = await Promise.all([
       completeSession(selectedId, editedText),
-      createGift(recipientId, giftMessage || undefined),
+      createGift(recipientId, giftTitle.trim() || undefined, giftMessage.trim() || undefined),
     ])
-
     setSaving(false)
     if (completeOk && giftOk) {
       setDone(true)
-      setTimeout(() => router.push(phase === "gifting" ? "/gifts" : "/reflection"), 1500)
+      setTimeout(() => router.push("/gifts"), 1500)
     }
   }
 
@@ -161,14 +195,20 @@ export function SummaryClient({
   if (done) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[70vh] px-4 text-center">
-        <div className="text-4xl mb-4">✓</div>
+        <div className="w-16 h-16 bg-brand-100 rounded-full flex items-center justify-center mb-4">
+          {phase === "gifting"
+            ? <Gift className="w-7 h-7 text-brand-500" />
+            : <span className="text-2xl">✓</span>}
+        </div>
         <h2 className="text-xl font-semibold text-gray-900 mb-2">
-          {phase === "gifting" ? "Gift sent!" : "Reflection shared!"}
+          {phase === "gifting" ? "Gift sent" : "Reflection shared"}
         </h2>
         <p className="text-sm text-gray-500">Redirecting…</p>
       </div>
     )
   }
+
+  const recipient = linkedUsers.find(u => u.id === recipientId)
 
   // ── Main render ───────────────────────────────────────────────────
 
@@ -196,7 +236,7 @@ export function SummaryClient({
         Select the summary that feels most true to you, or edit it to say it in your own words.
       </p>
 
-      {error && (
+      {error && phase === "idle" && (
         <p className="text-sm text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg mb-4">
           {error}
         </p>
@@ -283,7 +323,7 @@ export function SummaryClient({
         })}
       </div>
 
-      {/* ── Action section (only when a summary is selected) ───── */}
+      {/* ── Action section ──────────────────────────────────── */}
       {selectedId && phase === "idle" && (
         <div className="space-y-3">
           <p className="text-xs text-gray-400 uppercase tracking-wider font-semibold mb-2">
@@ -311,7 +351,7 @@ export function SummaryClient({
               <Button
                 variant="secondary"
                 size="md"
-                onClick={() => { setPhase("gifting"); setRecipientId(null) }}
+                onClick={openGift}
               >
                 Convert to Gift
               </Button>
@@ -336,20 +376,17 @@ export function SummaryClient({
         </div>
       )}
 
-      {/* No summary selected yet */}
       {!selectedId && (
         <p className="text-sm text-gray-400 text-center py-2">
           Choose which summary resonates most to see your options.
         </p>
       )}
 
-      {/* ── Share / Gift panel ────────────────────────────────── */}
-      {(phase === "sharing" || phase === "gifting") && (
+      {/* ── Simple Share panel ─────────────────────────────── */}
+      {phase === "sharing" && (
         <div className="bg-white border border-gray-100 rounded-2xl p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-gray-900">
-              {phase === "gifting" ? "Convert to Gift" : "Share with"}
-            </h3>
+            <h3 className="text-sm font-semibold text-gray-900">Share with</h3>
             <button
               onClick={() => setPhase("idle")}
               className="text-xs text-gray-400 hover:text-gray-600"
@@ -358,7 +395,6 @@ export function SummaryClient({
             </button>
           </div>
 
-          {/* Recipient selector */}
           <div className="space-y-2">
             {linkedUsers.map(u => (
               <button
@@ -371,7 +407,7 @@ export function SummaryClient({
                     : "border-gray-100 hover:border-brand-200",
                 )}
               >
-                <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold">
+                <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold shrink-0">
                   {(u.name ?? u.email)[0].toUpperCase()}
                 </div>
                 <div>
@@ -382,36 +418,197 @@ export function SummaryClient({
             ))}
           </div>
 
-          {/* Optional message (gift only) */}
-          {phase === "gifting" && (
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">
-                Personal message (optional)
-              </label>
-              <textarea
-                value={giftMessage}
-                onChange={e => setGiftMessage(e.target.value)}
-                placeholder="Add a note with your gift…"
-                rows={2}
-                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-            </div>
-          )}
-
           {error && (
             <p className="text-sm text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
               {error}
             </p>
           )}
 
-          <Button
-            size="lg"
-            onClick={handleShareOrGift}
-            disabled={!recipientId}
-            loading={saving}
-          >
-            {phase === "gifting" ? "Send gift" : "Share"}
+          {!recipientId && (
+            <p className="text-xs text-amber-600">
+              ⚠ Select a recipient to share.
+            </p>
+          )}
+
+          <Button size="lg" onClick={handleShare} disabled={!recipientId} loading={saving}>
+            Share
           </Button>
+        </div>
+      )}
+
+      {/* ── Gift panel ─────────────────────────────────────── */}
+      {phase === "gifting" && (
+        <div className="bg-white border border-gray-100 rounded-2xl overflow-hidden">
+          {/* Panel header */}
+          <div className="flex items-start justify-between px-5 pt-5 pb-4 border-b border-gray-50">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-900">Convert to Gift</h3>
+              <p className="text-xs text-gray-400 mt-0.5">
+                Share this reflection with someone who matters.
+              </p>
+            </div>
+            <button
+              onClick={() => setPhase("idle")}
+              className="text-xs text-gray-400 hover:text-gray-600 mt-0.5"
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {/* Recipient */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                To
+              </p>
+              <div className="space-y-2">
+                {linkedUsers.map(u => (
+                  <button
+                    key={u.id}
+                    onClick={() => setRecipientId(u.id)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all",
+                      recipientId === u.id
+                        ? "border-brand-500 bg-brand-50"
+                        : "border-gray-100 hover:border-brand-200",
+                    )}
+                  >
+                    <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-sm font-semibold shrink-0">
+                      {(u.name ?? u.email)[0].toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-900">{u.name ?? "—"}</p>
+                      <p className="text-xs text-gray-400 truncate">{u.email}</p>
+                    </div>
+                    {recipientId === u.id && (
+                      <span className="text-brand-500 text-xs font-medium shrink-0">Selected</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Framing line */}
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                Framing line{" "}
+                <span className="font-normal text-gray-400 normal-case tracking-normal">
+                  (optional)
+                </span>
+              </label>
+              <input
+                type="text"
+                value={giftTitle}
+                onChange={e => setGiftTitle(e.target.value.slice(0, 80))}
+                placeholder={`A reflection on ${topic}…`}
+                className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+              <p className="text-xs text-gray-400 mt-1 text-right">
+                {giftTitle.length}/80
+              </p>
+            </div>
+
+            {/* Personal note */}
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider block mb-1.5">
+                Personal note{" "}
+                <span className="font-normal text-gray-400 normal-case tracking-normal">
+                  (optional)
+                </span>
+              </label>
+              <textarea
+                value={giftMessage}
+                onChange={e => setGiftMessage(e.target.value)}
+                placeholder="I wanted to share this with you because…"
+                rows={2}
+                className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-500"
+              />
+            </div>
+
+            {/* Live preview */}
+            {selectedSummary && (
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  Preview — what {recipient ? (recipient.name ?? recipient.email.split("@")[0]) : "they"} will see
+                </p>
+                <GiftPreviewCard
+                  topic={topic}
+                  summaryText={selectedSummary.text}
+                  title={giftTitle}
+                  note={giftMessage}
+                />
+              </div>
+            )}
+
+            {/* Validation feedback */}
+            {!recipientId && (
+              <p className="text-xs text-amber-600 flex items-center gap-1.5">
+                <span>⚠</span> Select a recipient above to send.
+              </p>
+            )}
+
+            {error && (
+              <p className="text-sm text-red-600 bg-red-50 border border-red-100 px-3 py-2 rounded-lg">
+                {error}
+              </p>
+            )}
+
+            <Button
+              size="lg"
+              onClick={handleSendGift}
+              disabled={!recipientId}
+              loading={saving}
+            >
+              Send gift
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Gift preview card ─────────────────────────────────────────────────────
+
+function GiftPreviewCard({
+  topic,
+  summaryText,
+  title,
+  note,
+}: {
+  topic: string
+  summaryText: string
+  title: string
+  note: string
+}) {
+  return (
+    <div className="rounded-xl border-2 border-brand-100 bg-brand-50/40 p-4 space-y-3">
+      {/* Header */}
+      <div className="flex items-center gap-2.5">
+        <div className="w-9 h-9 bg-brand-100 rounded-full flex items-center justify-center shrink-0">
+          <Gift className="w-4 h-4 text-brand-500" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-xs font-semibold text-gray-900">A gift from you</p>
+          {title.trim() ? (
+            <p className="text-xs text-brand-600 italic truncate">{title.trim()}</p>
+          ) : (
+            <p className="text-xs text-gray-400 truncate">Reflection on: {topic}</p>
+          )}
+        </div>
+      </div>
+
+      {/* Summary */}
+      <div className="bg-white rounded-lg border border-gray-100 px-3 py-2.5">
+        <p className="text-[10px] font-medium text-gray-400 mb-1">Their reflection</p>
+        <p className="text-sm text-gray-800 leading-relaxed line-clamp-4">{summaryText}</p>
+      </div>
+
+      {/* Personal note */}
+      {note.trim() && (
+        <div className="bg-amber-50 rounded-lg border border-amber-100 px-3 py-2.5">
+          <p className="text-[10px] font-medium text-amber-500 mb-1">Personal note</p>
+          <p className="text-sm text-gray-800 leading-relaxed">{note.trim()}</p>
         </div>
       )}
     </div>

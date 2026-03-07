@@ -7,7 +7,7 @@ export async function POST(req: Request) {
   const session = await getServerSession(authOptions)
   if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
 
-  const { toUserId, sessionId, message } = await req.json()
+  const { toUserId, sessionId, title, message } = await req.json()
 
   if (!toUserId) {
     return NextResponse.json({ error: "toUserId is required" }, { status: 400 })
@@ -36,7 +36,8 @@ export async function POST(req: Request) {
       fromUserId: session.user.id,
       toUserId,
       sessionId: sessionId ?? null,
-      message: message?.trim() ?? null,
+      title: title?.trim() || null,
+      message: message?.trim() || null,
     },
   })
 

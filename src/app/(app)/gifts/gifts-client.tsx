@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils"
 interface GiftItem {
   id: string
   fromName: string
+  title: string | null
   message: string | null
   readAt: string | null
   createdAt: string
@@ -71,6 +72,7 @@ export function GiftsClient({ gifts: initial }: Props) {
         {gifts.map(gift => {
           const isOpen = expanded === gift.id
           const isNew = !gift.readAt
+          const subtitle = gift.title ?? (gift.topic ? `Reflection on: ${gift.topic}` : "Shared a reflection")
 
           return (
             <li
@@ -81,7 +83,7 @@ export function GiftsClient({ gifts: initial }: Props) {
               )}
               onClick={() => handleExpand(gift.id)}
             >
-              {/* Header row */}
+              {/* Collapsed header */}
               <div className="flex items-center gap-4 p-5">
                 <div className="w-10 h-10 bg-brand-100 rounded-full flex items-center justify-center shrink-0">
                   <Gift className="w-5 h-5 text-brand-500" />
@@ -92,13 +94,16 @@ export function GiftsClient({ gifts: initial }: Props) {
                       {gift.fromName}
                     </p>
                     {isNew && (
-                      <span className="inline-block bg-brand-500 text-white text-[9px] px-1.5 py-0.5 rounded-full shrink-0">
+                      <span className="inline-block bg-brand-500 text-white text-[9px] px-1.5 py-0.5 rounded-full shrink-0 font-semibold">
                         NEW
                       </span>
                     )}
                   </div>
-                  <p className="text-xs text-gray-400 truncate">
-                    {gift.topic ? `Reflection: ${gift.topic}` : "Shared a reflection"}
+                  <p className={cn(
+                    "text-xs truncate mt-0.5",
+                    gift.title ? "text-brand-600 italic" : "text-gray-400",
+                  )}>
+                    {subtitle}
                     {" · "}
                     {new Date(gift.createdAt).toLocaleDateString()}
                   </p>
@@ -109,16 +114,25 @@ export function GiftsClient({ gifts: initial }: Props) {
               {/* Expanded content */}
               {isOpen && (
                 <div className="px-5 pb-5 space-y-3">
+                  {/* Framing line (if different from topic) */}
+                  {gift.title && (
+                    <div className="flex items-center gap-2 pb-1">
+                      <span className="text-xs text-gray-400">Reflection on:</span>
+                      <span className="text-xs text-gray-600">{gift.topic ?? "—"}</span>
+                    </div>
+                  )}
+
                   {gift.summaryText && (
                     <div className="bg-white rounded-xl border border-gray-100 p-4">
-                      <p className="text-xs font-medium text-gray-400 mb-1">Their reflection</p>
+                      <p className="text-xs font-medium text-gray-400 mb-1.5">Their reflection</p>
                       <p className="text-sm text-gray-800 leading-relaxed">{gift.summaryText}</p>
                     </div>
                   )}
+
                   {gift.message && (
                     <div className="bg-amber-50 rounded-xl border border-amber-100 p-4">
-                      <p className="text-xs font-medium text-amber-500 mb-1">Personal message</p>
-                      <p className="text-sm text-gray-800">{gift.message}</p>
+                      <p className="text-xs font-medium text-amber-500 mb-1.5">Personal note</p>
+                      <p className="text-sm text-gray-800 leading-relaxed">{gift.message}</p>
                     </div>
                   )}
                 </div>
