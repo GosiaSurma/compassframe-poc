@@ -1,8 +1,4 @@
 import OpenAI from "openai"
-import { writeFile, mkdir } from "fs/promises"
-import { join } from "path"
-import https from "https"
-import http from "http"
 
 // ── Prompt builder ─────────────────────────────────────────────────────────
 
@@ -50,24 +46,13 @@ function getOpenAI(): OpenAI | null {
   return _openai
 }
 
-function downloadToBuffer(url: string): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const lib = url.startsWith("https") ? https : http
-    lib.get(url, (res) => {
-      const chunks: Buffer[] = []
-      res.on("data", (chunk: Buffer) => chunks.push(chunk))
-      res.on("end", () => resolve(Buffer.concat(chunks)))
-      res.on("error", reject)
-    }).on("error", reject)
-  })
-}
-
 /**
- * Generates an image for a reflection session and saves it to public/generated/{sessionId}.png.
- * Returns the relative URL path (e.g. "/generated/abc.png"), or null if unavailable/failed.
+ * Generates an image for a reflection session via DALL-E 3.
+ * Returns the remote image URL directly (valid ~1 hour) or null if unavailable/failed.
+ * Storing to filesystem is skipped — incompatible with read-only serverless environments.
  */
 export async function generateReflectionImage(
-  sessionId: string,
+  _sessionId: string,
   prompt: string,
 ): Promise<string | null> {
   const client = getOpenAI()
@@ -80,14 +65,5 @@ export async function generateReflectionImage(
     size: "1024x1024",
   })
 
-  const remoteUrl = response.data?.[0]?.url
-  if (!remoteUrl) return null
-
-  const buffer = await downloadToBuffer(remoteUrl)
-  const dir = join(process.cwd(), "public", "generated")
-  await mkdir(dir, { recursive: true })
-  const filename = `${sessionId}.png`
-  await writeFile(join(dir, filename), buffer)
-
-  return `/generated/${filename}`
+  return response.data?.[0]?.url ?? null
 }
