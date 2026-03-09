@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Gift } from "lucide-react"
+import { getGiftSendState } from "@/lib/gift-validation"
 
 interface SummaryOption {
   id: string
@@ -26,11 +27,15 @@ interface Props {
   alreadyCompleted: boolean
   summaries: SummaryOption[]
   linkedUsers: LinkedUser[]
+  imageUrl: string | null
+  magicalMode: string
 }
 
 type ActionPhase = "idle" | "sharing" | "gifting"
 
 const MAX_ROUNDS = 12
+
+type ImageStatus = "idle" | "generating" | "ready" | "failed"
 
 export function SummaryClient({
   sessionId,
@@ -39,6 +44,7 @@ export function SummaryClient({
   alreadyCompleted,
   summaries: initialSummaries,
   linkedUsers,
+  imageUrl: initialImageUrl,
 }: Props) {
   const router = useRouter()
 
@@ -58,13 +64,34 @@ export function SummaryClient({
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState(false)
 
+  const [imgUrl, setImgUrl] = useState<string | null>(initialImageUrl)
+  const [imgStatus, setImgStatus] = useState<ImageStatus>(initialImageUrl ? "ready" : "idle")
+
   // ── Helpers ─────────────────────────────────────────────────────
 
   const selectedSummary = summaries.find(s => s.id === selectedId)
 
+  async function generateImage() {
+    if (imgStatus === "generating" || imgStatus === "ready") return
+    setImgStatus("generating")
+    try {
+      const res = await fetch(`/api/reflection/sessions/${sessionId}/image`, { method: "POST" })
+      const data = await res.json()
+      if (data.imageUrl) {
+        setImgUrl(data.imageUrl)
+        setImgStatus("ready")
+      } else {
+        setImgStatus("failed")
+      }
+    } catch {
+      setImgStatus("failed")
+    }
+  }
+
   function selectSummary(id: string) {
     if (editingId) commitEdit()
     setSelectedId(id)
+    generateImage()
   }
 
   function startEdit(id: string) {
@@ -323,6 +350,38 @@ export function SummaryClient({
         })}
       </div>
 
+      {/* ── Reflection image ─────────────────────────────────── */}
+      {selectedId && imgStatus !== "idle" && (
+        <div className="mb-8">
+          {imgStatus === "generating" && (
+            <div className="flex items-center gap-3 rounded-2xl border border-gray-100 bg-white px-5 py-4">
+              <div className="w-5 h-5 border-2 border-brand-400 border-t-transparent rounded-full animate-spin shrink-0" />
+              <p className="text-sm text-gray-500">Creating your reflection image…</p>
+            </div>
+          )}
+          {imgStatus === "ready" && imgUrl && (
+            <div className="rounded-2xl overflow-hidden border border-gray-100">
+              <img
+                src={imgUrl}
+                alt="Reflection image"
+                className="w-full aspect-square object-cover"
+              />
+            </div>
+          )}
+          {imgStatus === "failed" && (
+            <div className="flex items-center justify-between rounded-2xl border border-gray-100 bg-white px-5 py-4">
+              <p className="text-sm text-gray-400">Couldn&apos;t generate image.</p>
+              <button
+                onClick={() => generateImage()}
+                className="text-xs text-brand-600 hover:text-brand-700 font-medium"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── Action section ──────────────────────────────────── */}
       {selectedId && phase === "idle" && (
         <div className="space-y-3">
@@ -536,15 +595,9 @@ export function SummaryClient({
                   summaryText={selectedSummary.text}
                   title={giftTitle}
                   note={giftMessage}
+                  imageUrl={imgStatus === "ready" ? imgUrl : null}
                 />
               </div>
-            )}
-
-            {/* Validation feedback */}
-            {!recipientId && (
-              <p className="text-xs text-amber-600 flex items-center gap-1.5">
-                <span>⚠</span> Select a recipient above to send.
-              </p>
             )}
 
             {error && (
@@ -553,14 +606,29 @@ export function SummaryClient({
               </p>
             )}
 
-            <Button
-              size="lg"
-              onClick={handleSendGift}
-              disabled={!recipientId}
-              loading={saving}
-            >
-              Send gift
-            </Button>
+            {(() => {
+              const { canSend, disabledReason } = getGiftSendState({
+                selectedSummaryId: selectedId,
+                recipientId,
+                saving,
+              })
+              return (
+                <>
+                  {disabledReason && (
+                    <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-center gap-1.5">
+                      <span>⚠</span> {disabledReason}
+                    </p>
+                  )}
+                  <Button
+                    size="lg"
+                    onClick={handleSendGift}
+                    disabled={!canSend}
+                  >
+                    Send gift
+                  </Button>
+                </>
+              )
+            })()}
           </div>
         </div>
       )}
@@ -575,14 +643,27 @@ function GiftPreviewCard({
   summaryText,
   title,
   note,
+  imageUrl,
 }: {
   topic: string
   summaryText: string
   title: string
   note: string
+  imageUrl: string | null
 }) {
   return (
-    <div className="rounded-xl border-2 border-brand-100 bg-brand-50/40 p-4 space-y-3">
+    <div className="rounded-xl border-2 border-brand-100 bg-brand-50/40 overflow-hidden space-y-3 p-4">
+      {/* Reflection image */}
+      {imageUrl && (
+        <div className="-mx-4 -mt-4 mb-0">
+          <img
+            src={imageUrl}
+            alt=""
+            className="w-full aspect-video object-cover"
+          />
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center gap-2.5">
         <div className="w-9 h-9 bg-brand-100 rounded-full flex items-center justify-center shrink-0">

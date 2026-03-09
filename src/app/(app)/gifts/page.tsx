@@ -16,6 +16,7 @@ export default async function GiftsPage() {
       session: {
         select: {
           topic: true,
+          imageUrl: true,
           summaries: {
             where: { selected: true },
             select: { text: true },
@@ -36,6 +37,7 @@ export default async function GiftsPage() {
         createdAt: g.createdAt.toISOString(),
         topic: g.session?.topic ?? null,
         summaryText: g.session?.summaries[0]?.text ?? null,
+        imageUrl: g.session?.imageUrl ?? null,
       }))}
     />
   )

@@ -13,6 +13,7 @@ interface GiftItem {
   createdAt: string
   topic: string | null
   summaryText: string | null
+  imageUrl: string | null
 }
 
 interface Props {
@@ -114,6 +115,17 @@ export function GiftsClient({ gifts: initial }: Props) {
               {/* Expanded content */}
               {isOpen && (
                 <div className="px-5 pb-5 space-y-3">
+                  {/* Reflection image */}
+                  {gift.imageUrl && (
+                    <div className="-mx-5 -mt-0 overflow-hidden rounded-b-none">
+                      <img
+                        src={gift.imageUrl}
+                        alt=""
+                        className="w-full aspect-video object-cover"
+                      />
+                    </div>
+                  )}
+
                   {/* Framing line (if different from topic) */}
                   {gift.title && (
                     <div className="flex items-center gap-2 pb-1">

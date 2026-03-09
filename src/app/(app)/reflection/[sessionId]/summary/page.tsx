@@ -22,7 +22,7 @@ export default async function SummaryPage({
     }),
     prisma.user.findUnique({
       where: { id: session.user.id },
-      select: { role: true },
+      select: { role: true, magicalMode: true },
     }),
   ])
 
@@ -120,6 +120,8 @@ export default async function SummaryPage({
         name: u.name,
         email: u.email,
       }))}
+      imageUrl={reflectionSession.imageUrl ?? null}
+      magicalMode={user?.magicalMode ?? "off"}
     />
   )
 }

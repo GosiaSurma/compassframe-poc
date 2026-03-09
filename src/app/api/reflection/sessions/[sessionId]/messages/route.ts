@@ -3,7 +3,12 @@ import { getServerSession } from "next-auth"
 import { authOptions } from "@/lib/auth"
 import { prisma } from "@/lib/prisma"
 import { callMI } from "@/lib/llm"
-import { buildMISystemPrompt, getBand, getOpeningPrompt } from "@/lib/mi-prompts"
+import {
+  buildMISystemPrompt,
+  buildFirstTurnSystemPrompt,
+  getBand,
+  getOpeningPrompt,
+} from "@/lib/mi-prompts"
 
 const MAX_ROUNDS = 12
 
@@ -70,18 +75,29 @@ export async function POST(
     data: { sessionId, role: "user", content: content.trim() },
   })
 
-  // Call LLM with round-aware prompt
-  let aiResponse
-  try {
-    aiResponse = await callMI(
-      history,
-      buildMISystemPrompt({
+  // Round 1 uses a dedicated first-turn prompt anchored to role + actual first message.
+  // Later rounds use the band-progressive MI prompt.
+  const isFirstTurn = reflectionSession.roundCount === 0
+  const systemPrompt = isFirstTurn
+    ? buildFirstTurnSystemPrompt({
+        topic: reflectionSession.topic,
+        role: session.user.role ?? null,
+        firstMessage: content.trim(),
+      })
+    : buildMISystemPrompt({
         topic: reflectionSession.topic,
         round: nextRound,
         usedEmotions,
         priorInsights,
         priorQuestion,
-      }),
+      })
+
+  // Call LLM with round-aware prompt
+  let aiResponse
+  try {
+    aiResponse = await callMI(
+      history,
+      systemPrompt,
       { topic: reflectionSession.topic, stage },
     )
   } catch (err) {
