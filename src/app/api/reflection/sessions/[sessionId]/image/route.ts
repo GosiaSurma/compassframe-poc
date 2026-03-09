@@ -70,10 +70,15 @@ export async function POST(
 
   // Generate image (non-blocking failure — returns null if API key missing or error)
   let imageUrl: string | null = null
-  try {
-    imageUrl = await generateReflectionImage(sessionId, imagePrompt)
-  } catch {
-    // generation failed — return graceful null
+  if (!process.env.OPENAI_API_KEY) {
+    console.error("[image-gen] OPENAI_API_KEY is not set — skipping generation")
+  } else {
+    try {
+      imageUrl = await generateReflectionImage(sessionId, imagePrompt)
+      if (!imageUrl) console.error("[image-gen] generateReflectionImage returned null")
+    } catch (err) {
+      console.error("[image-gen] generation threw:", err)
+    }
   }
 
   // Persist to DB regardless of outcome (imageUrl may be null)
