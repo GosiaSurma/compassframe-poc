@@ -22,6 +22,7 @@ async function send(to: string, subject: string, html: string) {
 
 export async function sendVerificationEmail(email: string, token: string) {
   const url = `${BASE_URL}/api/auth/verify-email?token=${token}`
+  console.log("[email] isDev:", isDev, "| KEY set:", !!process.env.RESEND_API_KEY, "| FROM:", FROM, "| BASE_URL:", BASE_URL)
   if (isDev) { devLog("VERIFY", url); return }
   await send(email, "Verify your Compassframe email", verifyTemplate(url))
 }
