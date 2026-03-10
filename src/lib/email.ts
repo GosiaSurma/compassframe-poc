@@ -15,24 +15,21 @@ function devLog(label: string, url: string) {
   console.log(`╚══════════════════════════════════════════╝\n`)
 }
 
+async function send(to: string, subject: string, html: string) {
+  const { error } = await resend.emails.send({ from: FROM, to, subject, html })
+  if (error) throw new Error(`[Resend] ${error.message ?? JSON.stringify(error)}`)
+}
+
 export async function sendVerificationEmail(email: string, token: string) {
   const url = `${BASE_URL}/api/auth/verify-email?token=${token}`
   if (isDev) { devLog("VERIFY", url); return }
-  await resend.emails.send({
-    from: FROM, to: email,
-    subject: "Verify your Compassframe email",
-    html: verifyTemplate(url),
-  })
+  await send(email, "Verify your Compassframe email", verifyTemplate(url))
 }
 
 export async function sendPasswordResetEmail(email: string, token: string) {
   const url = `${BASE_URL}/reset-password?token=${token}`
   if (isDev) { devLog("RESET", url); return }
-  await resend.emails.send({
-    from: FROM, to: email,
-    subject: "Reset your Compassframe password",
-    html: resetTemplate(url),
-  })
+  await send(email, "Reset your Compassframe password", resetTemplate(url))
 }
 
 export async function sendInviteEmail(
@@ -44,11 +41,7 @@ export async function sendInviteEmail(
   const url = `${BASE_URL}/invite/${token}`
   const theirRole = fromRole === "parent" ? "teen" : "parent"
   if (isDev) { devLog("INVITE", url); return }
-  await resend.emails.send({
-    from: FROM, to: toEmail,
-    subject: `${fromName} invited you to Compassframe`,
-    html: inviteTemplate(url, fromName, theirRole),
-  })
+  await send(toEmail, `${fromName} invited you to Compassframe`, inviteTemplate(url, fromName, theirRole))
 }
 
 // ── Templates ──────────────────────────────────────────────────────────
