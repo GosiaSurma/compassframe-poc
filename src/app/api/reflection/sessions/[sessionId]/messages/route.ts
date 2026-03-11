@@ -98,7 +98,7 @@ export async function POST(
     aiResponse = await callMI(
       history,
       systemPrompt,
-      { topic: reflectionSession.topic, stage },
+      { topic: reflectionSession.topic, stage, usedEmotions, priorQuestion },
     )
   } catch (err) {
     console.error("[reflection:message]", err)

@@ -21,7 +21,7 @@ export interface MIResponse {
   emotion_label: string
   follow_up_question: string
   highlighted_insight: HighlightedInsight | null
-  progress_stage: "situation" | "feeling" | "meaning" | "consolidation"
+  progress_stage: "situation" | "feeling" | "meaning" | "integration"
   topic_anchor: string
   summary_readiness_score: number
 }
@@ -29,6 +29,8 @@ export interface MIResponse {
 interface MICallContext {
   topic: string
   stage: MIResponse["progress_stage"]
+  usedEmotions?: string[]
+  priorQuestion?: string | null
 }
 
 let _client: Anthropic | null = null
@@ -72,22 +74,56 @@ const FORBIDDEN_GENERIC = [
   "that is really important",
 ]
 
+const PLACEHOLDER_RE = /<[^>]{2,60}>/
+
+function questionWordOverlap(a: string, b: string): number {
+  const split = (s: string) => s.toLowerCase().split(/\s+/).filter(w => w.length > 3)
+  const wordsA = split(a)
+  const wb = new Set(split(b))
+  const intersection = wordsA.filter(w => wb.has(w)).length
+  const union = new Set(wordsA).size + wb.size - intersection
+  return union > 0 ? intersection / union : 0
+}
+
 /** Returns a list of violations. Empty array = clean. */
-export function validateMIResponse(r: MIResponse): string[] {
+export function validateMIResponse(r: MIResponse, ctx?: MICallContext): string[] {
   const combined = (r.reflection_text + " " + r.follow_up_question).toLowerCase()
   const violations: string[] = []
+
   for (const term of [...FORBIDDEN_CLINICAL, ...FORBIDDEN_ADVICE, ...FORBIDDEN_GENERIC]) {
     if (combined.includes(term)) violations.push(term)
   }
+
   if (!r.follow_up_question.includes("?")) {
     violations.push("missing question mark in follow_up_question")
   }
+
+  // Placeholder text: angle-bracket template tokens left unfilled
+  if (PLACEHOLDER_RE.test(r.reflection_text) || PLACEHOLDER_RE.test(r.follow_up_question)) {
+    violations.push("unfilled template placeholder in response")
+  }
+
+  // Repeated emotion label
+  if (ctx?.usedEmotions && r.emotion_label) {
+    if (ctx.usedEmotions.map(e => e.toLowerCase()).includes(r.emotion_label.toLowerCase())) {
+      violations.push(`repeated emotion label: "${r.emotion_label}"`)
+    }
+  }
+
+  // Repeated question pattern (>55% word overlap with prior question)
+  if (ctx?.priorQuestion && r.follow_up_question) {
+    const overlap = questionWordOverlap(r.follow_up_question, ctx.priorQuestion)
+    if (overlap > 0.55) {
+      violations.push("follow_up_question too similar to prior question")
+    }
+  }
+
   return violations
 }
 
 // ── Parsing ────────────────────────────────────────────────────────────────
 
-const VALID_STAGES = new Set(["situation", "feeling", "meaning", "consolidation"])
+const VALID_STAGES = new Set(["situation", "feeling", "meaning", "integration"])
 const VALID_MARKERS = new Set(["fire", "water", "air", "earth"])
 
 function parseMIResponse(raw: string): MIResponse | null {
@@ -222,14 +258,14 @@ async function _callMIWithRetry(
     return makeSafeFallback(context)
   }
 
-  const violations = validateMIResponse(parsed)
+  const violations = validateMIResponse(parsed, context)
   if (violations.length === 0) return parsed
 
   if (!isRetry) {
     const correctionPrompt =
       systemPrompt +
-      `\n\n⚠ CORRECTION REQUIRED: Your previous response contained restricted term(s): "${violations.join('", "')}". ` +
-      `Rewrite without using any of these terms. Keep the same empathic structure but use only approved language.`
+      `\n\n⚠ CORRECTION REQUIRED: Your previous response violated one or more rules: "${violations.join('", "')}". ` +
+      `Rewrite to fix all violations. Keep the same empathic structure but use only approved language.`
     return _callMIWithRetry(messages, correctionPrompt, true, context)
   }
 

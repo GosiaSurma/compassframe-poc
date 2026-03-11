@@ -14,22 +14,22 @@ export const APPROVED_EMOTION_SET = new Set([
   "unsettled", "curious", "resigned", "energised", "hollow", "tender", "wary",
 ])
 
-export type Band = "situation" | "feeling" | "meaning" | "consolidation"
+export type Band = "situation" | "feeling" | "meaning" | "integration"
 
 export function getBand(round: number): Band {
   if (round <= 3) return "situation"
   if (round <= 6) return "feeling"
   if (round <= 9) return "meaning"
-  return "consolidation"
+  return "integration"
 }
 
 // ── Phase guidance ──────────────────────────────────────────────────────────
 
 const PHASE_LABEL: Record<Band, string> = {
-  situation:    "Situation (Rounds 1–3)",
-  feeling:      "Feeling & Tension (Rounds 4–6)",
-  meaning:      "Meaning & Patterns (Rounds 7–9)",
-  consolidation:"Consolidation (Rounds 10–12)",
+  situation:   "Situation (Rounds 1–3)",
+  feeling:     "Feeling & Tension (Rounds 4–6)",
+  meaning:     "Meaning & Patterns (Rounds 7–9)",
+  integration: "Integration (Rounds 10–12)",
 }
 
 const PHASE_GUIDANCE: Record<Band, string> = {
@@ -48,7 +48,7 @@ Look for patterns or tensions that have emerged across the conversation.
 Questions such as "What does this say about what's important to you?" fit here.
 Highlighted insights are especially valuable in this phase when a genuine pattern is visible.`,
 
-  consolidation: `You are in the Consolidation phase. Help the person integrate what has emerged.
+  integration: `You are in the Integration phase. Help the person integrate what has emerged.
 Reflect key threads: what they named, what shifted, what has become clearer.
 Invite them to articulate their own understanding — without prescribing it.
 Do NOT introduce new topics. Work only with what is already present.`,
@@ -201,10 +201,10 @@ export function buildMISystemPrompt({
       : ""
 
   const readinessGuidance =
-    band === "situation"    ? "0–30 — early stage, person is still describing the situation" :
-    band === "feeling"      ? "25–55 — emotional landscape being explored" :
-    band === "meaning"      ? "50–75 — patterns and meaning emerging" :
-                              "70–100 — consolidating, approaching readiness"
+    band === "situation"   ? "0–30 — early stage, person is still describing the situation" :
+    band === "feeling"     ? "25–55 — emotional landscape being explored" :
+    band === "meaning"     ? "50–75 — patterns and meaning emerging" :
+                             "70–100 — integrating, approaching readiness"
 
   return `You are a calm, thoughtful reflection companion in Compassframe.
 You are NOT a therapist. You do not give advice, diagnose, or judge.
